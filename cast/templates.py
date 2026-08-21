@@ -114,7 +114,7 @@ PAGE = """<!DOCTYPE html>
 """
 
 APP_CSS = """
-:root { --bg:#0d0f13; --panel:#15181f; --panel2:#101319; --card:#1d222b; --line:#2a303b; --fg:#edf0f6; --muted:#98a1b3; --accent:#5b8cff; --err:#ff6b6b; --canvas-scale:1; }
+:root { --bg:#0d0f13; --panel:#15181f; --panel2:#101319; --card:#1d222b; --line:#2a303b; --fg:#edf0f6; --muted:#98a1b3; --accent:#5b8cff; --err:#ff6b6b; --canvas-scale:1; --scroll-track:#101319; --scroll-thumb:#3d4657; --scroll-hover:#56627a; }
 * { box-sizing: border-box; }
 html, body { height:100%; }
 body { margin:0; background:#0b0d11; color:var(--fg);
@@ -124,6 +124,13 @@ body { margin:0; background:#0b0d11; color:var(--fg);
 #topbar { display:flex; align-items:center; gap:10px; padding:10px 14px;
           border-bottom:1px solid rgba(255,255,255,.08); background:rgba(18,21,28,.96);
           flex:0 0 auto; box-shadow:0 1px 0 rgba(255,255,255,.03) inset; overflow-x:auto; overflow-y:hidden; }
+#topbar, #rail, #stage, #inspector { scrollbar-width:thin; scrollbar-color:var(--scroll-thumb) var(--scroll-track); }
+#topbar::-webkit-scrollbar, #rail::-webkit-scrollbar, #stage::-webkit-scrollbar, #inspector::-webkit-scrollbar { width:9px; height:9px; }
+#topbar::-webkit-scrollbar-track, #rail::-webkit-scrollbar-track, #stage::-webkit-scrollbar-track, #inspector::-webkit-scrollbar-track { background:var(--scroll-track); }
+#topbar::-webkit-scrollbar-thumb, #rail::-webkit-scrollbar-thumb, #stage::-webkit-scrollbar-thumb, #inspector::-webkit-scrollbar-thumb {
+  background:var(--scroll-thumb); border:2px solid var(--scroll-track); border-radius:8px; }
+#topbar::-webkit-scrollbar-thumb:hover, #rail::-webkit-scrollbar-thumb:hover, #stage::-webkit-scrollbar-thumb:hover, #inspector::-webkit-scrollbar-thumb:hover { background:var(--scroll-hover); }
+#topbar::-webkit-scrollbar-corner, #rail::-webkit-scrollbar-corner, #stage::-webkit-scrollbar-corner, #inspector::-webkit-scrollbar-corner { background:var(--scroll-track); }
 #topbar .brand-block { display:flex; flex-direction:column; gap:1px; min-width:72px; }
 #topbar .brand { font-weight:800; letter-spacing:.2px; font-size:17px; line-height:1; }
 #topbar #status { font-size:12px; color:var(--muted); }
@@ -221,7 +228,10 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 .block .body.text.code-text::before { content:""; position:absolute; top:14px; left:16px; width:7px; height:7px;
   border-radius:50%; background:#fb7185; box-shadow:11px 0 #fbbf24, 22px 0 #34d399; pointer-events:none; }
 .block .body.text.code-text .rich { height:100%; min-height:0; overflow:auto; overflow-wrap:normal;
-  white-space:pre-wrap; tab-size:2; scrollbar-gutter:stable; }
+  white-space:pre-wrap; tab-size:2; scrollbar-gutter:stable; scrollbar-width:thin; scrollbar-color:#56627a #111827; }
+.block .body.text.code-text .rich::-webkit-scrollbar { width:8px; height:8px; }
+.block .body.text.code-text .rich::-webkit-scrollbar-track { background:#111827; }
+.block .body.text.code-text .rich::-webkit-scrollbar-thumb { background:#56627a; border:2px solid #111827; border-radius:8px; }
 .block .body.html iframe { width:100%; height:100%; border:0; display:block; background:white; }
 .editing .block.html iframe { pointer-events:none; }
 .editing .block { outline:1px dashed rgba(120,130,150,.4); }
@@ -262,7 +272,11 @@ button:disabled { opacity:.45; cursor:not-allowed; }
   padding:6px 10px; border-bottom:1px solid rgba(31,41,55,.12); background:#f8fafc; color:#4b5563; font-size:11px; }
 .table-meta strong { min-width:0; color:#20242c; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .table-meta span { flex:0 0 auto; }
-.table-scroll { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; touch-action:pan-x pan-y; }
+.table-scroll { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable;
+  touch-action:pan-x pan-y; scrollbar-width:thin; scrollbar-color:#9aa5b5 #eef2f7; }
+.table-scroll::-webkit-scrollbar { width:9px; height:9px; }
+.table-scroll::-webkit-scrollbar-track { background:#eef2f7; }
+.table-scroll::-webkit-scrollbar-thumb { background:#9aa5b5; border:2px solid #eef2f7; border-radius:8px; }
 .data-table { width:max-content; min-width:100%; border-collapse:separate; border-spacing:0; font-size:12px; line-height:1.25; }
 .data-table th, .data-table td { padding:7px 10px; max-width:320px; border-right:1px solid rgba(31,41,55,.1);
   border-bottom:1px solid rgba(31,41,55,.1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

@@ -134,7 +134,10 @@ _TEMPLATE = r"""<!doctype html>
   .block .body.text.code-text::before {{ content:""; position:absolute; top:14px; left:16px; width:7px; height:7px;
     border-radius:50%; background:#fb7185; box-shadow:11px 0 #fbbf24, 22px 0 #34d399; pointer-events:none; }}
   .block .body.text.code-text .rich {{ height:100%; min-height:0; overflow:auto; overflow-wrap:normal;
-    white-space:pre-wrap; tab-size:2; scrollbar-gutter:stable; }}
+    white-space:pre-wrap; tab-size:2; scrollbar-gutter:stable; scrollbar-width:thin; scrollbar-color:#56627a #111827; }}
+  .block .body.text.code-text .rich::-webkit-scrollbar {{ width:8px; height:8px; }}
+  .block .body.text.code-text .rich::-webkit-scrollbar-track {{ background:#111827; }}
+  .block .body.text.code-text .rich::-webkit-scrollbar-thumb {{ background:#56627a; border:2px solid #111827; border-radius:8px; }}
   .block .body.image {{ display:flex; align-items:center; justify-content:center; }}
   .block .body.image img {{ width:100%; height:100%; display:block; }}
   .block .body.html iframe {{ width:100%; height:100%; border:0; display:block; background:white; }}
@@ -144,7 +147,11 @@ _TEMPLATE = r"""<!doctype html>
     padding:6px 10px; border-bottom:1px solid rgba(31,41,55,.12); background:#f8fafc; color:#4b5563; font-size:11px; }}
   .table-meta strong {{ min-width:0; color:#20242c; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
   .table-meta span {{ flex:0 0 auto; }}
-  .table-scroll {{ flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }}
+  .table-scroll {{ flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable;
+    scrollbar-width:thin; scrollbar-color:#9aa5b5 #eef2f7; }}
+  .table-scroll::-webkit-scrollbar {{ width:9px; height:9px; }}
+  .table-scroll::-webkit-scrollbar-track {{ background:#eef2f7; }}
+  .table-scroll::-webkit-scrollbar-thumb {{ background:#9aa5b5; border:2px solid #eef2f7; border-radius:8px; }}
   .data-table {{ width:max-content; min-width:100%; border-collapse:separate; border-spacing:0; font-size:12px; line-height:1.25; }}
   .data-table th, .data-table td {{ padding:7px 10px; max-width:320px; border-right:1px solid rgba(31,41,55,.1);
     border-bottom:1px solid rgba(31,41,55,.1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
