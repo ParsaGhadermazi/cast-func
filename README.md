@@ -51,15 +51,9 @@ the `sales` table, and it appears on a slide.
 pip install cast-func
 ```
 
-For the notebook integration (embedding the editor directly in a cell):
-
-```bash
-pip install "cast-func[notebook]"
-```
-
 cast requires Python 3.9 or newer. The runtime dependencies — `fastapi`,
-`uvicorn`, `polars`, `plotly`, and `numpy` — are installed automatically. The
-package is imported as `cast`:
+`uvicorn`, `polars`, `plotly`, `numpy`, `pandas`, `pyarrow`, and `notebook` —
+are installed automatically. The package is imported as `cast`:
 
 ```python
 import cast
