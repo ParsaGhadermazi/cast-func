@@ -122,7 +122,7 @@ _TEMPLATE = r"""<!doctype html>
 <style>
   :root {{ --accent:{accent}; }}
   * {{ box-sizing:border-box; }}
-  html, body {{ margin:0; height:100%; background:#000; overflow:hidden; }}
+  html, body {{ margin:0; height:100%; background:#000; overflow:hidden; color-scheme:dark; }}
   #stage {{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }}
   #canvas {{ position:relative; background:{bg}; color:{fg}; font-family:{font};
              aspect-ratio:16/9; overflow:hidden; }}
@@ -134,7 +134,7 @@ _TEMPLATE = r"""<!doctype html>
   .block .body.text.code-text::before {{ content:""; position:absolute; top:14px; left:16px; width:7px; height:7px;
     border-radius:50%; background:#fb7185; box-shadow:11px 0 #fbbf24, 22px 0 #34d399; pointer-events:none; }}
   .block .body.text.code-text .rich {{ height:100%; min-height:0; overflow:auto; overflow-wrap:normal;
-    white-space:pre-wrap; tab-size:2; scrollbar-gutter:stable; scrollbar-width:thin; scrollbar-color:#56627a #111827; }}
+    white-space:pre-wrap; tab-size:2; color-scheme:dark; scrollbar-gutter:stable; scrollbar-width:thin; scrollbar-color:#56627a #111827; }}
   .block .body.text.code-text .rich::-webkit-scrollbar {{ width:8px; height:8px; }}
   .block .body.text.code-text .rich::-webkit-scrollbar-track {{ background:#111827; }}
   .block .body.text.code-text .rich::-webkit-scrollbar-thumb {{ background:#56627a; border:2px solid #111827; border-radius:8px; }}
@@ -148,7 +148,7 @@ _TEMPLATE = r"""<!doctype html>
   .table-meta strong {{ min-width:0; color:#20242c; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
   .table-meta span {{ flex:0 0 auto; }}
   .table-scroll {{ flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable;
-    scrollbar-width:thin; scrollbar-color:#9aa5b5 #eef2f7; }}
+    color-scheme:light; scrollbar-width:thin; scrollbar-color:#9aa5b5 #eef2f7; }}
   .table-scroll::-webkit-scrollbar {{ width:9px; height:9px; }}
   .table-scroll::-webkit-scrollbar-track {{ background:#eef2f7; }}
   .table-scroll::-webkit-scrollbar-thumb {{ background:#9aa5b5; border:2px solid #eef2f7; border-radius:8px; }}
