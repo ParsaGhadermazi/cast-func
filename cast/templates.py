@@ -954,10 +954,20 @@ function renderImageInto(body, b) {
   if (!img) {
     body.innerHTML = "";
     img = el("img", {draggable:"false", decoding:"async"});
-    img.addEventListener("error", ()=>{
+    img.addEventListener("error", async ()=>{
       if (!img.isConnected) return;
+      const failedSrc = img.getAttribute("src") || "";
+      let message = "Unable to render this image.";
+      if (asset && failedSrc) {
+        try {
+          const response = await fetch(failedSrc, {cache:"no-store"});
+          const detail = (await response.text()).trim();
+          if (detail && !response.ok) message = detail;
+        } catch (_) {}
+      }
+      if (!img.isConnected || img.getAttribute("src") !== failedSrc) return;
       body.innerHTML = "";
-      body.append(el("div", {class:"ph"}, "Unable to render this image."));
+      body.append(el("div", {class:"ph", title:message}, message));
     });
     body.append(img);
   }

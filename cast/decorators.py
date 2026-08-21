@@ -2,7 +2,7 @@
 
 All decorators support bare and parameterized forms and register their asset at
 decoration time. Calling a decorated function still returns its original value;
-calling a ``@data`` function also refreshes its cached table for live slides.
+calling a ``@data`` or ``@image`` function also refreshes its cached live asset.
 """
 
 from __future__ import annotations
@@ -105,11 +105,14 @@ def image(fn: Optional[Callable] = None, *, name: Optional[str] = None,
     def decorate(func: Callable) -> Callable:
         reg_name = name or func.__name__
         reg_title = title or _humanize(reg_name)
-        registry.register_image(reg_name, reg_title, alt or reg_title, func)
+        reg_alt = alt or reg_title
+        registry.register_image(reg_name, reg_title, reg_alt, func)
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            registry.update_image(reg_name, reg_title, reg_alt, func, result)
+            return result
 
         return wrapper
 

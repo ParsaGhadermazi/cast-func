@@ -229,6 +229,25 @@ class Registry:
                 name=name, title=title, alt=alt, fn=fn, version=v
             )
 
+    def update_image(
+        self, name: str, title: str, alt: str, fn: Callable, value: object
+    ) -> None:
+        """Refresh an image after its decorated notebook function is called."""
+        result = _coerce_image(value, name)
+        with self._lock:
+            v = self._bump()
+            current = self._images.get(name)
+            if current is None:
+                self._images[name] = ImageAsset(
+                    name=name, title=title, alt=alt, fn=fn, version=v, cached=result
+                )
+            else:
+                current.title = title
+                current.alt = alt
+                current.fn = fn
+                current.version = v
+                current.cached = result
+
     def apply(self, figure_name: str, table_name: Optional[str] = None) -> ApplyResult:
         with self._lock:
             fig = self._figures.get(figure_name)
@@ -729,6 +748,17 @@ def _coerce_image(value: object, name: str, media_hint: Optional[str] = None,
     if callable(savefig):
         buffer = io.BytesIO()
         savefig(buffer, format="svg", bbox_inches="tight")
+        return _image_from_bytes(
+            buffer.getvalue(), name, "image/svg+xml", f"{name}.svg"
+        )
+
+    # Matplotlib and seaborn commonly return an Axes while the serializable
+    # canvas lives on its figure.
+    figure = getattr(value, "figure", None)
+    figure_savefig = getattr(figure, "savefig", None)
+    if figure is not value and callable(figure_savefig):
+        buffer = io.BytesIO()
+        figure_savefig(buffer, format="svg", bbox_inches="tight")
         return _image_from_bytes(
             buffer.getvalue(), name, "image/svg+xml", f"{name}.svg"
         )

@@ -89,6 +89,16 @@ assert "immutable" in png_ok.headers["cache-control"]
 svg_ok = client.get("/render_image", params={"image": "vector_badge"})
 assert svg_ok.status_code == 200 and svg_ok.headers["content-type"].startswith("image/svg+xml")
 assert b"<svg" in svg_ok.content
+
+# Calling a decorated image refreshes its cached bytes and cache-busting version.
+image_version = next(image["version"] for image in st["images"] if image["name"] == "raster_pixel")
+assert raster_pixel() == PNG_BYTES
+refreshed_state = client.get("/state").json()
+assert next(
+    image["version"] for image in refreshed_state["images"] if image["name"] == "raster_pixel"
+) > image_version
+assert client.get("/render_image", params={"image": "raster_pixel"}).content == PNG_BYTES
+
 missing_image = client.get("/render_image", params={"image": "missing"})
 assert missing_image.status_code == 422
 table_ok = client.get("/render_table", params={"table": "monthly", "limit": 1}).json()
