@@ -7,9 +7,9 @@ Build live, notebook-backed presentations from Python functions.
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![Built with](https://img.shields.io/badge/built%20with-FastAPI%20%C2%B7%20Polars%20%C2%B7%20Plotly-5b8cff)
 
-![A slide composed in cast: a Plotly figure, a data table, a vector image, and rich text on one canvas.](docs/hero.png)
+![The cast editor: a toolbar of blocks, a slide canvas with a figure, table, image, and text, and an inspector panel.](docs/editor.png)
 
-*A single slide composed in cast — a live Plotly figure, a scrollable data table, a vector image, and rich text, all driven from decorated notebook functions.*
+*The cast editor — a Plotly figure, a scrollable data table, a vector image, and rich text arranged on the canvas, with the selected block's controls in the inspector. Every asset comes from a decorated notebook function.*
 
 **Project note:** This repo is vibe coded, and the frontend in particular — the
 in-browser canvas editor and everything it renders — was built by iteration
@@ -48,19 +48,22 @@ the `sales` table, and it appears on a slide.
 ## Install
 
 ```bash
-git clone https://github.com/ParsaGhadermazi/cast-func
-cd cast-func
-pip install -e .
+pip install cast-func
 ```
 
 For the notebook integration (embedding the editor directly in a cell):
 
 ```bash
-pip install -e ".[notebook]"
+pip install "cast-func[notebook]"
 ```
 
 cast requires Python 3.9 or newer. The runtime dependencies — `fastapi`,
-`uvicorn`, `polars`, `plotly`, and `numpy` — are installed automatically.
+`uvicorn`, `polars`, `plotly`, and `numpy` — are installed automatically. The
+package is imported as `cast`:
+
+```python
+import cast
+```
 
 ## The decorators
 
@@ -232,23 +235,6 @@ The full source is in [`examples/demo.py`](examples/demo.py).
   kernel or process to see the change — a browser refresh alone will not reload it.
 - `save` and `load` store references to decorated assets, not the Python behind
   them. Rerun the notebook cells that define the assets before calling `load`.
-
-## Contributing
-
-Contributions and issues are welcome; this is an experimental project and the
-API may still change.
-
-```bash
-git clone https://github.com/ParsaGhadermazi/cast-func
-cd cast-func
-pip install -e ".[dev]"
-python examples/_smoke.py   # quick end-to-end check against the FastAPI app
-python examples/demo.py     # run the live editor and try changes by hand
-```
-
-When changing the editor, remember that `cast/templates.py` is loaded at import
-time, so restart the process to pick up edits. Please open an issue to discuss
-larger changes before sending a pull request.
 
 ## License
 
