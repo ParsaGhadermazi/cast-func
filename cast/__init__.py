@@ -14,4 +14,4 @@ from .export import freeze
 from .persistence import load, save
 
 __all__ = ["data", "figure", "html", "image", "serve", "freeze", "save", "load"]
-__version__ = "0.2.0"
+__version__ = "0.3.0"

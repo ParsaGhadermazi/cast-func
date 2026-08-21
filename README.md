@@ -7,7 +7,7 @@ Build live, notebook-backed presentations from Python functions.
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![Built with](https://img.shields.io/badge/built%20with-FastAPI%20%C2%B7%20Polars%20%C2%B7%20Plotly-5b8cff)
 
-![The cast editor: a toolbar of blocks, a slide canvas with a figure, table, image, and text, and an inspector panel.](docs/editor.png)
+![The cast editor: a toolbar of blocks, a slide canvas with a figure, table, image, and text, and an inspector panel.](https://raw.githubusercontent.com/ParsaGhadermazi/cast-func/main/docs/editor.png)
 
 *The cast editor — a Plotly figure, a scrollable data table, a vector image, and rich text arranged on the canvas, with the selected block's controls in the inspector. Every asset comes from a decorated notebook function.*
 
