@@ -357,6 +357,34 @@ class Registry:
                 self._bump()
             return removed
 
+    def duplicate_slide(self, sid: str) -> Optional[str]:
+        with self._lock:
+            source_index = next(
+                (index for index, slide in enumerate(self._slides) if slide.id == sid),
+                None,
+            )
+            if source_index is None:
+                return None
+
+            self._slide_seq += 1
+            duplicate_sid = f"s{self._slide_seq}"
+            duplicate_blocks = []
+            for source_block in self._slides[source_index].blocks:
+                self._block_seq += 1
+                block_data = asdict(source_block)
+                block_data["id"] = f"b{self._block_seq}"
+                duplicate_blocks.append(Block(**block_data))
+
+            source = self._slides[source_index]
+            duplicate = Slide(
+                id=duplicate_sid,
+                background=source.background,
+                blocks=duplicate_blocks,
+            )
+            self._slides.insert(source_index + 1, duplicate)
+            self._bump()
+            return duplicate_sid
+
     def reorder_slides(self, order: List[str]) -> bool:
         with self._lock:
             by_id = {s.id: s for s in self._slides}

@@ -12,6 +12,7 @@ from .decorators import data, figure, html, image
 from .server import serve
 from .export import freeze
 from .persistence import load, save
+from .presentation import Cast
 
-__all__ = ["data", "figure", "html", "image", "serve", "freeze", "save", "load"]
+__all__ = ["Cast", "data", "figure", "html", "image", "serve", "freeze", "save", "load"]
 __version__ = "0.3.0"

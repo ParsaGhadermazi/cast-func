@@ -64,6 +64,8 @@ assert {image["name"] for image in st["images"]} == {"raster_pixel", "vector_bad
 assert {t["name"] for t in st["tables"]} == {"monthly", "wide"}, st["tables"]
 assert st["slides"] == [], st["slides"]
 assert st["theme"]["accent"], st["theme"]
+assert st["workspace"] == {"configured": False, "filename": None}
+assert client.post("/deck/save").status_code == 409
 
 # Calling a @data function still returns its value and refreshes the live table.
 monthly_version = next(t["version"] for t in st["tables"] if t["name"] == "monthly")
@@ -224,6 +226,31 @@ with tempfile.TemporaryDirectory() as tmpdir:
     assert next_bid == "b6"
     assert client.delete(f"/blocks/{next_bid}").json()["ok"] is True
 
+    # Slide duplication inserts a deep copy immediately after its source.
+    before_duplicate = client.get("/state").json()
+    source_slide = next(s for s in before_duplicate["slides"] if s["id"] == sid1)
+    duplicate_response = client.post(f"/slides/{sid1}/duplicate")
+    assert duplicate_response.status_code == 200
+    duplicate_sid = duplicate_response.json()["id"]
+    duplicated_state = client.get("/state").json()
+    duplicated_ids = [slide["id"] for slide in duplicated_state["slides"]]
+    assert duplicated_ids.index(duplicate_sid) == duplicated_ids.index(sid1) + 1
+    duplicate_slide = next(
+        slide for slide in duplicated_state["slides"] if slide["id"] == duplicate_sid
+    )
+    assert duplicate_slide["background"] == source_slide["background"]
+    assert [
+        {key: value for key, value in block.items() if key != "id"}
+        for block in duplicate_slide["blocks"]
+    ] == [
+        {key: value for key, value in block.items() if key != "id"}
+        for block in source_slide["blocks"]
+    ]
+    assert {block["id"] for block in duplicate_slide["blocks"]}.isdisjoint(
+        {block["id"] for block in source_slide["blocks"]}
+    )
+    assert client.delete(f"/slides/{duplicate_sid}").json()["ok"] is True
+
     # The browser upload endpoint accepts the same document.
     assert client.put("/deck", json=saved_document).json()["ok"] is True
 
@@ -235,4 +262,49 @@ assert [s["id"] for s in st["slides"]] == [sid2]
 assert client.get("/").status_code == 200
 assert client.get("/app.js").status_code == 200
 assert client.get("/app.css").status_code == 200
+
+# ----- file-backed Cast workspace ---------------------------------------- #
+with tempfile.TemporaryDirectory() as tmpdir:
+    workspace_path = Path(tmpdir) / "workspace.cast.json"
+    workspace = cast.Cast(workspace_path)
+    assert workspace.path == str(workspace_path.resolve())
+    assert workspace_path.exists()
+    created_document = json.loads(workspace_path.read_text(encoding="utf-8"))
+    assert created_document["format"] == "cast.presentation"
+    assert created_document["slides"] == []
+
+    @workspace.data(name="instance_data", title="Instance data")
+    def instance_data():
+        return pl.LazyFrame({"value": [1]})
+
+    assert "instance_data" in {
+        table["name"] for table in client.get("/state").json()["tables"]
+    }
+    workspace_sid = client.post("/slides").json()["id"]
+    client.post(
+        f"/slides/{workspace_sid}/blocks",
+        json={"type": "text", "content": "<p>Workspace</p>"},
+    )
+    assert workspace.save() == str(workspace_path.resolve())
+    assert len(json.loads(workspace_path.read_text(encoding="utf-8"))["slides"]) == 1
+
+    # The browser Save action writes the configured workspace file.
+    assert client.patch("/theme", json={"accent": "#123456"}).json()["ok"] is True
+    browser_save = client.post("/deck/save")
+    assert browser_save.json() == {"ok": True, "filename": "workspace.cast.json"}
+    assert json.loads(workspace_path.read_text(encoding="utf-8"))["theme"]["accent"] == "#123456"
+
+    copy_path = Path(tmpdir) / "workspace-copy.cast.json"
+    assert workspace.save(as_=copy_path) == str(copy_path.resolve())
+    assert copy_path.exists()
+    assert workspace.path == str(workspace_path.resolve())
+
+    # Reconstructing Cast from an existing file restores its saved deck.
+    assert client.patch("/theme", json={"accent": "#abcdef"}).json()["ok"] is True
+    reopened = cast.Cast(workspace_path)
+    reopened_state = client.get("/state").json()
+    assert reopened.path == workspace.path
+    assert reopened_state["theme"]["accent"] == "#123456"
+    assert len(reopened_state["slides"]) == 1
+
 print("SMOKE_OK | error sample:", bad["error"].splitlines()[0])

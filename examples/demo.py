@@ -1,7 +1,7 @@
 """Runnable showcase. Run with: python examples/demo.py
 
-Starts the live page, registers three data tables, one figure *factory*, one
-HTML object, and one vector image,
+Opens or creates ``demo.cast.json``, starts the live page, registers three data
+tables, one figure *factory*, one HTML object, and one vector image,
 then keeps the server alive. Open http://127.0.0.1:8000 and use the controls to
 add the 'trend' figure to the inventory with 'monthly' data, then add it again
 with 'daily' data — same factory, two instances. Try the (intentionally)
@@ -18,8 +18,10 @@ import polars as pl
 
 import cast
 
+deck = cast.Cast(os.environ.get("CAST_FILE", "demo.cast.json"))
 
-@cast.data
+
+@deck.data
 def monthly():
     return pl.LazyFrame(
         {
@@ -29,7 +31,7 @@ def monthly():
     )
 
 
-@cast.data
+@deck.data
 def daily():
     return pl.LazyFrame(
         {
@@ -39,31 +41,31 @@ def daily():
     )
 
 
-@cast.data(title="Wide (no date/value)")
+@deck.data(title="Wide (no date/value)")
 def wide():
     return pl.LazyFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
 
 
-@cast.figure(title="Value over time")
+@deck.figure(title="Value over time")
 def trend(tbl: pl.LazyFrame):
     df = tbl.select(["date", "value"]).collect()
     return px.line(df, x="date", y="value", markers=True)
 
 
-@cast.html(title="HTML callout")
+@deck.html(title="HTML callout")
 def callout():
     return """
     <html>
       <body style="font-family: system-ui; margin: 0; padding: 24px; background: #f6f8ff;">
         <h2 style="margin-top: 0;">Custom HTML</h2>
-        <p>This block came from <code>@cast.html</code>.</p>
+        <p>This block came from <code>@deck.html</code>.</p>
         <button onclick="this.textContent = 'Still interactive'">Click me</button>
       </body>
     </html>
     """
 
 
-@cast.image(title="Vector workflow", alt="A three-step cast workflow diagram")
+@deck.image(title="Vector workflow", alt="A three-step cast workflow diagram")
 def workflow_image():
     return """
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 360">
@@ -95,7 +97,7 @@ def workflow_image():
 
 if __name__ == "__main__":
     port = int(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CAST_PORT", "8000"))
-    cast.serve(port=port)
+    deck.serve(port=port)
     # All decorated assets register at definition time. Data functions resolve
     # lazily when a table or figure first uses them.
     print(f"Registered. Open http://127.0.0.1:{port}  (Ctrl-C to stop)")

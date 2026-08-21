@@ -5,6 +5,7 @@ Routes:
   GET    /app.css /app.js   client assets
   GET    /state             assets + deck + theme
   GET    /deck              download the editable presentation document
+  POST   /deck/save         save to the configured workspace file
   PUT    /deck              replace the editable presentation document
   GET    /render            ?figure=F[&table=T] -> {ok, plotly} | {ok:false, error}
   GET    /render_table      ?table=T[&limit=N] -> table preview data
@@ -13,6 +14,7 @@ Routes:
   GET    /events            Server-Sent Events; emits on version change
 
   POST   /slides                       add a slide -> {id}
+  POST   /slides/{sid}/duplicate       duplicate a slide -> {id}
   DELETE /slides/{sid}                 remove a slide
   PATCH  /slides/order                 {order: [sid, ...]}
   POST   /slides/{sid}/blocks          add a block -> {id}
@@ -26,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from dataclasses import asdict
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI
@@ -33,6 +36,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel
 
 from .registry import registry
+from .persistence import save as save_workspace, workspace_path
 from .templates import APP_CSS, APP_JS, PAGE
 
 app = FastAPI(title="cast")
@@ -96,7 +100,13 @@ def app_js() -> Response:
 
 @app.get("/state")
 def state() -> JSONResponse:
-    return JSONResponse(registry.get_state())
+    payload = registry.get_state()
+    workspace = workspace_path()
+    payload["workspace"] = {
+        "configured": workspace is not None,
+        "filename": workspace.name if workspace is not None else None,
+    }
+    return JSONResponse(payload)
 
 
 @app.get("/deck")
@@ -108,6 +118,20 @@ def download_deck() -> JSONResponse:
             "Cache-Control": "no-store",
         },
     )
+
+
+@app.post("/deck/save")
+def persist_deck() -> JSONResponse:
+    try:
+        destination = Path(save_workspace())
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+    except OSError as exc:
+        return JSONResponse(
+            {"ok": False, "error": f"Could not save presentation: {exc}"},
+            status_code=500,
+        )
+    return JSONResponse({"ok": True, "filename": destination.name})
 
 
 @app.put("/deck")
@@ -163,6 +187,16 @@ def add_slide() -> JSONResponse:
 @app.delete("/slides/{sid}")
 def remove_slide(sid: str) -> JSONResponse:
     return JSONResponse({"ok": registry.remove_slide(sid)})
+
+
+@app.post("/slides/{sid}/duplicate")
+def duplicate_slide(sid: str) -> JSONResponse:
+    duplicate_sid = registry.duplicate_slide(sid)
+    if duplicate_sid is None:
+        return JSONResponse(
+            {"ok": False, "error": f"Unknown slide '{sid}'."}, status_code=404
+        )
+    return JSONResponse({"ok": True, "id": duplicate_sid})
 
 
 @app.patch("/slides/order")

@@ -2,6 +2,7 @@
 
 Build live, notebook-backed presentations from Python functions.
 
+![PyPI](https://img.shields.io/pypi/v/cast-func)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
@@ -28,13 +29,14 @@ slides update without a reload.
 ```python
 import cast, polars as pl, plotly.express as px
 
-cast.serve()                       # live editor in a background thread
+deck = cast.Cast("sales.cast.json")  # opens this workspace, or creates it
+deck.serve()                          # live editor in a background thread
 
-@cast.data                         # returns a polars LazyFrame -> a data source
+@deck.data                         # returns a polars LazyFrame -> a data source
 def sales():
     return pl.scan_parquet("sales.parquet")
 
-@cast.figure                       # a factory: takes one table, returns a Plotly figure
+@deck.figure                       # a factory: takes one table, returns a Plotly figure
 def trend(tbl):
     df = tbl.select(["month", "revenue"]).collect()
     return px.line(df, x="month", y="revenue", markers=True)
@@ -61,27 +63,30 @@ import cast
 
 ## The decorators
 
-Everything on a slide begins as a decorated function in the notebook.
+Everything on a slide begins as a decorated function in the notebook. Create a
+workspace with `deck = cast.Cast("talk.cast.json")`, then use its decorators.
 Registration happens when the function is defined, and each decorated function
 still returns its original value, so existing notebook code is unaffected. Every
-decorator supports both the bare form (`@cast.data`) and the parameterized form
-(`@cast.data(name=..., title=...)`).
+decorator supports both the bare form (`@deck.data`) and the parameterized form
+(`@deck.data(name=..., title=...)`). The same decorators are importable at module
+level (`cast.data`, `cast.figure`, `cast.html`, `cast.image`); `deck.data` and
+`cast.data` are interchangeable.
 
 | Decorator | The function returns | Registered as |
 | --- | --- | --- |
-| `@cast.data` | a `polars.LazyFrame` | a data source that feeds figures and table blocks |
-| `@cast.figure` | *(factory)* a Plotly figure from a table | a chart that can be rebound to any table |
-| `@cast.html` | an HTML string (or an object with `_repr_html_`) | a sandboxed iframe block |
-| `@cast.image` | a path, bytes, SVG, or data URI | an original-quality image asset |
+| `@deck.data` | a `polars.LazyFrame` | a data source that feeds figures and table blocks |
+| `@deck.figure` | *(factory)* a Plotly figure from a table | a chart that can be rebound to any table |
+| `@deck.html` | an HTML string (or an object with `_repr_html_`) | a sandboxed iframe block |
+| `@deck.image` | a path, bytes, SVG, or data URI | an original-quality image asset |
 
-### `@cast.data`
+### `@deck.data`
 
 ```python
-@cast.data
+@deck.data
 def sales():
     return pl.scan_parquet("sales.parquet")
 
-@cast.data(title="Q2 Forecast")
+@deck.data(title="Q2 Forecast")
 def forecast():
     return pl.scan_parquet("forecast.parquet")
 ```
@@ -95,16 +100,16 @@ horizontal and vertical scrolling, optional row numbers and stripes, and a
 preview limit of up to 1,000 rows; the same scrollable table is preserved in
 present mode and in exports.
 
-### `@cast.figure`
+### `@deck.figure`
 
 ```python
-@cast.figure(title="Value over time")
+@deck.figure(title="Value over time")
 def trend(tbl):
     df = tbl.select(["date", "value"]).collect()
     return px.line(df, x="date", y="value", markers=True)
 ```
 
-`@cast.figure` registers a *factory* at decoration time, not a rendered chart —
+`@deck.figure` registers a *factory* at decoration time, not a rendered chart —
 you do not pass a table in the notebook. In the browser you add the figure to
 the inventory and choose which table feeds it, and you can add the same factory
 again with a different table. Each instance has its own table dropdown; picking a
@@ -112,30 +117,30 @@ table re-runs the figure function on the server against that data. If the chosen
 table is incompatible, the block shows the error inline and invites another
 choice rather than crashing.
 
-### `@cast.html`
+### `@deck.html`
 
 ```python
-@cast.html(title="Callout")
+@deck.html(title="Callout")
 def callout():
     return "<h2>Custom HTML</h2><button onclick=\"this.textContent='clicked'\">Click</button>"
 ```
 
-`@cast.html` registers a custom HTML object at decoration time. Add it from the
+`@deck.html` registers a custom HTML object at decoration time. Add it from the
 HTML dropdown to insert the returned markup into a sandboxed iframe block. This
 is useful for small widgets, controls, styled notes, or visualization snippets
 that are not Plotly figures. Objects exposing `_repr_html_()` are also accepted.
 
-### `@cast.image`
+### `@deck.image`
 
 ```python
 from pathlib import Path
 
-@cast.image(title="Study design", alt="Diagram of the study workflow")
+@deck.image(title="Study design", alt="Diagram of the study workflow")
 def study_design():
     return Path("figures/study-design.svg")  # PNG, JPEG, bytes, SVG, and data URIs also work
 ```
 
-`@cast.image` registers publication-quality image assets at decoration time. The
+`@deck.image` registers publication-quality image assets at decoration time. The
 function may return a PNG/JPEG/SVG file path, raw image bytes, SVG markup, a data
 URI, or a notebook object with a PNG, JPEG, or SVG rich representation;
 Matplotlib figures and Pillow images are accepted through their standard save
@@ -153,6 +158,10 @@ Once assets are registered, the browser is a free-form canvas:
   line) can be placed anywhere on a 16:9 canvas.
 - Blocks can be dragged, resized from any corner, rotated, and stacked in z-order;
   arrow keys nudge the selection and the Delete key removes it.
+- The inspector's Arrange controls align a block to the canvas (left/center/right,
+  top/middle/bottom), duplicate it, or send it back in the stack.
+- Slides are managed from the rail on the left: add, reorder, delete, or
+  duplicate a slide.
 - Text boxes use slide-native rich text rather than Markdown. Editing happens on
   the same element used for presentation, so typography, wrapping, and spacing do
   not change between design and present modes; font, size, color, weight,
@@ -166,24 +175,33 @@ Once assets are registered, the browser is a free-form canvas:
 - Present mode is full-screen with arrow-key navigation, and figures remain
   interactive.
 
-The editor is served by the small FastAPI application that `cast.serve()` starts
+The editor is served by the small FastAPI application that `deck.serve()` starts
 in a background thread. `serve()` is idempotent, so calling it more than once
 does not start a second server.
 
 ## Save, reopen, and export
 
 ```python
-cast.save("talk.cast.json")   # editable source: slides, text, geometry, styles, theme, asset references
-cast.load("talk.cast.json")   # reopen it later, after the asset cells have re-registered
-cast.freeze("talk.html")      # one self-contained HTML file, no server required
+deck = cast.Cast("talk.cast.json")    # load it, or create an empty workspace
+deck.save()                           # atomically update talk.cast.json
+deck.save(as_="talk-copy.cast.json") # write a copy; talk.cast.json stays active
+deck.load()                           # reload the active workspace from disk
+deck.freeze("talk.html")              # self-contained HTML, no server required
 ```
+
+`Cast(path)` makes that JSON file the workspace source of truth. If the path
+already exists it is validated and loaded; if it does not exist, cast creates a
+new empty presentation there immediately. The editor's **Save** button performs
+the same atomic update as `deck.save()`, so saving does not depend on a browser
+download. Python reserves the word `as`, so Save As is spelled `as_`.
 
 `save` and `load` round-trip an editable deck as human-readable JSON. The
 document preserves slide order, text, geometry, styles, rotations, theme,
 manually uploaded images, and references to decorated assets. It deliberately
 does not serialize Python functions or data frames; rerun the notebook cells that
-define those assets before reopening the deck. The same **Save** and **Open**
-actions are available from the editor toolbar.
+define those assets before reopening the deck. The editor's **Open** action can
+load another JSON document into the current workspace; press **Save** to commit
+it to the file originally passed to `Cast`.
 
 `freeze` produces the shareable output: figures are pre-rendered to Plotly JSON,
 images are embedded, and tables, text, and shapes are inlined into a single HTML
@@ -198,8 +216,8 @@ running server.
                  @html @image             html, images)
 ```
 
-The notebook is the source of truth for data and logic; the browser is the source
-of truth for layout. cast keeps the two in sync.
+The notebook is the source of truth for data and logic; the bound `.cast.json`
+workspace is the source of truth for layout. cast keeps the two in sync.
 
 ## Run the example
 
@@ -216,14 +234,15 @@ The full source is in [`examples/demo.py`](examples/demo.py).
 
 | Call | Description |
 | --- | --- |
-| `cast.serve(port=8000, host="127.0.0.1", open=False)` | Start the editor in a background thread and return the URL; `open=True` embeds an IFrame in a notebook. Idempotent. |
-| `@cast.data` / `@cast.data(name=, title=)` | Register a `LazyFrame`-returning function as a data source. |
-| `@cast.figure` / `@cast.figure(name=, title=)` | Register a `table -> Plotly figure` factory. |
-| `@cast.html` / `@cast.html(name=, title=)` | Register an HTML-returning factory for iframe blocks. |
-| `@cast.image` / `@cast.image(name=, title=, alt=)` | Register an original-quality image asset. |
-| `cast.save(path)` | Write the editable `.cast.json` deck. |
-| `cast.load(path)` | Restore an editable deck (register the assets first). |
-| `cast.freeze(path)` | Export a self-contained, portable HTML file. |
+| `cast.Cast(path)` | Open an existing `.cast.json` workspace or create a new one. |
+| `deck.serve(port=8000, host="127.0.0.1", open=False)` | Start the editor in a background thread and return the URL; `open=True` embeds an IFrame in a notebook. Idempotent. |
+| `@deck.data` / `@deck.data(name=, title=)` | Register a `LazyFrame`-returning function as a data source. |
+| `@deck.figure` / `@deck.figure(name=, title=)` | Register a `table -> Plotly figure` factory. |
+| `@deck.html` / `@deck.html(name=, title=)` | Register an HTML-returning factory for iframe blocks. |
+| `@deck.image` / `@deck.image(name=, title=, alt=)` | Register an original-quality image asset. |
+| `deck.save()` / `deck.save(as_=path)` | Update the active workspace or atomically write a separate copy. |
+| `deck.load()` | Reload the active workspace (registered assets remain available). |
+| `deck.freeze(path)` | Export a self-contained, portable HTML file. |
 
 ## Notes and limitations
 

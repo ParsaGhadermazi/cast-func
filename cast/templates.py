@@ -78,7 +78,7 @@ PAGE = """<!DOCTYPE html>
   <span class="grp files">
     <input id="open-deck-file" type="file" accept=".json,application/json" hidden />
     <button id="open-deck-btn" title="Open an editable cast presentation">Open</button>
-    <button id="save-deck-btn" title="Save the editable cast presentation">Save</button>
+    <button id="save-deck-btn" title="Save the presentation workspace">Save</button>
   </span>
   <span class="grp view">
     <button id="grid-btn" class="toggle on" title="Show grid">Grid</button>
@@ -94,12 +94,12 @@ PAGE = """<!DOCTYPE html>
 
 <div id="workspace">
   <aside id="rail"></aside>
-  <div id="stage"><div id="canvas"></div></div>
+  <div id="stage"><div id="canvas-viewport"><div id="canvas"></div></div></div>
   <aside id="inspector"><div class="muted">Select a block to edit it.</div></aside>
 </div>
 
 <div id="present-overlay" hidden>
-  <div id="present-stage"><div id="present-canvas"></div></div>
+  <div id="present-stage"><div id="present-viewport"><div id="present-canvas"></div></div></div>
   <div id="present-hud">
     <button id="p-prev">←</button>
     <span id="present-count">1 / 1</span>
@@ -114,7 +114,8 @@ PAGE = """<!DOCTYPE html>
 """
 
 APP_CSS = """
-:root { --bg:#0d0f13; --panel:#15181f; --panel2:#101319; --card:#1d222b; --line:#2a303b; --fg:#edf0f6; --muted:#98a1b3; --accent:#5b8cff; --err:#ff6b6b; --canvas-scale:1; --scroll-track:#101319; --scroll-thumb:#3d4657; --scroll-hover:#56627a; }
+:root { --bg:#0d0f13; --panel:#15181f; --panel2:#101319; --card:#1d222b; --line:#2a303b; --fg:#edf0f6; --muted:#98a1b3; --accent:#5b8cff; --err:#ff6b6b; --scroll-track:#101319; --scroll-thumb:#3d4657; --scroll-hover:#56627a;
+        --selection-layer:2147480000; --present-layer:2147483000; --present-controls-layer:2147483647; }
 * { box-sizing: border-box; }
 html, body { height:100%; color-scheme:dark; }
 body { margin:0; background:#0b0d11; color:var(--fg);
@@ -174,20 +175,40 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 #shape-palette svg { width:18px; height:18px; overflow:hidden !important; }
 
 #workspace { flex:1; display:flex; min-height:0; }
-#rail { width:178px; flex:0 0 auto; border-right:1px solid rgba(255,255,255,.08); background:var(--panel);
+#rail { width:196px; flex:0 0 auto; border-right:1px solid rgba(255,255,255,.08); background:var(--panel);
         overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
 #rail .thumb { position:relative; border:2px solid transparent; border-radius:7px; background:#fff;
                aspect-ratio:16/9; cursor:pointer; overflow:hidden; box-shadow:0 8px 22px rgba(0,0,0,.22); }
 #rail .thumb.active { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent), 0 10px 24px rgba(0,0,0,.3); }
-#rail .thumb .mini { position:absolute; inset:0; overflow:hidden; transform-origin:top left; pointer-events:none; }
-#rail .thumb .mini-block { position:absolute; border-radius:2px; background:rgba(26,29,36,.12); color:#1a1d24; overflow:hidden; }
-#rail .thumb .mini-figure { background:rgba(91,140,255,.16); border:1px solid rgba(91,140,255,.35); }
-#rail .thumb .mini-table { background:rgba(15,118,110,.15); border:1px solid rgba(15,118,110,.35); }
-#rail .thumb .mini-shape { background:var(--accent); opacity:.55; }
-#rail .thumb .mini-image { background:#aeb8ca; }
-#rail .thumb .num { position:absolute; top:4px; left:6px; font-size:11px; color:#697084; background:rgba(255,255,255,.75); border-radius:999px; padding:1px 6px; }
-#rail .thumb .del { position:absolute; top:3px; right:4px; color:#8790a3; font-size:14px; background:rgba(255,255,255,.75); border:0; padding:0 5px; border-radius:999px; }
+#rail .thumb .mini { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+#rail .thumb .mini-block { position:absolute; border-radius:1px; color:#1a1d24; overflow:hidden; transform-origin:50% 50%; }
+#rail .thumb .mini-text { padding:2px; background:transparent; }
+#rail .thumb .mini-text .rich { min-height:0; overflow:hidden; }
+#rail .thumb .mini-text.code { padding:7px 3px 3px; border:1px solid rgba(148,163,184,.3); }
+#rail .thumb .mini-text.code::before { content:""; position:absolute; top:3px; left:4px; width:2px; height:2px; border-radius:50%;
+                                      background:#fb7185; box-shadow:4px 0 #fbbf24, 8px 0 #34d399; }
+#rail .thumb .mini-image img { width:100%; height:100%; display:block; }
+#rail .thumb .mini-shape { overflow:visible; }
+#rail .thumb .mini-figure { display:flex; flex-direction:column; justify-content:flex-end; padding:4px 4px 3px;
+                            background:rgba(255,255,255,.88); border:1px solid rgba(91,140,255,.28); }
+#rail .thumb .mini-chart { flex:1; min-height:0; display:flex; align-items:flex-end; gap:3px; padding:4px 3px 2px;
+                           border-left:1px solid #aeb7c5; border-bottom:1px solid #aeb7c5; }
+#rail .thumb .mini-chart i { flex:1; min-width:2px; background:var(--accent); opacity:.82; border-radius:1px 1px 0 0; }
+#rail .thumb .mini-label { flex:0 0 auto; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:#596275; font-size:4px; line-height:1.2; }
+#rail .thumb .mini-table { display:grid; grid-template-rows:24% 1fr; background:#fff; border:1px solid rgba(31,41,55,.2); }
+#rail .thumb .mini-table-head { display:flex; align-items:center; padding:0 3px; overflow:hidden; color:#374151; background:#e8edf4;
+                               border-bottom:1px solid #cbd3df; font-size:4px; font-weight:700; white-space:nowrap; }
+#rail .thumb .mini-table-grid { background:repeating-linear-gradient(0deg, transparent 0 7px, rgba(31,41,55,.13) 7px 8px),
+                                          repeating-linear-gradient(90deg, transparent 0 18px, rgba(31,41,55,.11) 18px 19px); }
+#rail .thumb .mini-html { display:flex; flex-direction:column; gap:3px; padding:4px; background:#fff; border:1px solid #d7dde7; }
+#rail .thumb .mini-html::before { content:"HTML"; color:#64748b; font-size:4px; font-weight:700; }
+#rail .thumb .mini-html::after { content:""; flex:1; background:repeating-linear-gradient(0deg, #dfe5ee 0 2px, transparent 2px 5px); opacity:.9; }
+#rail .thumb .num { position:absolute; z-index:10000; top:4px; left:6px; font-size:11px; color:#697084; background:rgba(255,255,255,.84); border-radius:999px; padding:1px 6px; }
+#rail .thumb .del { position:absolute; z-index:10000; top:3px; right:4px; color:#8790a3; font-size:14px; background:rgba(255,255,255,.84); border:0; padding:0 5px; border-radius:999px; }
 #rail .thumb .del:hover { color:var(--err); }
+#rail .thumb .dup { position:absolute; z-index:10000; right:4px; bottom:4px; width:25px; height:24px; color:#697084; font-size:16px; line-height:1;
+                     background:rgba(255,255,255,.82); border:0; padding:0; border-radius:6px; }
+#rail .thumb .dup:hover { color:var(--accent); background:#fff; }
 #rail .add-slide { background:transparent; border:1px dashed var(--line); color:var(--muted); padding:10px; }
 
 #stage { flex:1; min-width:0; display:grid; align-items:start; justify-items:center; padding:32px; overflow:auto;
@@ -195,8 +216,9 @@ button:disabled { opacity:.45; cursor:not-allowed; }
            linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
            linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
          background-size:28px 28px; }
-#canvas { position:relative; width:min(calc(100% * var(--canvas-scale)), calc(1040px * var(--canvas-scale))); aspect-ratio:16/9; background:#fff;
-          border-radius:8px; box-shadow:0 24px 70px rgba(0,0,0,.56), 0 0 0 1px rgba(255,255,255,.08); overflow:hidden; margin:auto; }
+#canvas-viewport { position:relative; flex:0 0 auto; }
+#canvas { position:absolute; inset:0 auto auto 0; width:1040px; height:585px; background:#fff; transform-origin:top left;
+          border-radius:8px; box-shadow:0 24px 70px rgba(0,0,0,.56), 0 0 0 1px rgba(255,255,255,.08); overflow:hidden; }
 #canvas.show-grid::after { content:""; position:absolute; inset:0; pointer-events:none; z-index:5;
   background:
     linear-gradient(rgba(91,140,255,.12) 1px, transparent 1px),
@@ -240,7 +262,8 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 .editing .block.html iframe { pointer-events:none; }
 .editing .block { outline:1px dashed rgba(120,130,150,.4); }
 .editing .block:hover { outline:1px solid rgba(91,140,255,.6); }
-.editing .block.selected { outline:2px solid var(--accent); box-shadow:0 0 0 5px color-mix(in srgb, var(--accent) 16%, transparent); }
+.editing .block.selected { z-index:var(--selection-layer) !important; outline:2px solid var(--accent);
+                           box-shadow:0 0 0 5px color-mix(in srgb, var(--accent) 16%, transparent); }
 .editing .block { cursor:move; }
 .block .handle { position:absolute; width:13px; height:13px; background:#fff; border:2px solid var(--accent); touch-action:none;
                  border-radius:50%; display:none; z-index:6; box-shadow:0 1px 3px rgba(0,0,0,.3); }
@@ -342,25 +365,31 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 #inspector .sub { font-size:11px; color:var(--muted); margin:-6px 0 10px; }
 
 /* present mode */
-#present-overlay { position:fixed; inset:0; background:#000; z-index:1000; display:flex;
+#present-overlay { position:fixed; inset:0; background:#000; z-index:var(--present-layer); display:flex;
                    flex-direction:column; align-items:center; justify-content:center; }
 #present-overlay[hidden] { display:none; }
-#present-stage { flex:1; width:100%; display:flex; align-items:center; justify-content:center; }
-#present-canvas { position:relative; background:#fff; aspect-ratio:16/9; }
+#present-stage { flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+#present-viewport { position:relative; flex:0 0 auto; }
+#present-canvas { position:absolute; inset:0 auto auto 0; width:1040px; height:585px; background:#fff; transform-origin:top left; }
 #present-hud { position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
                display:flex; gap:10px; align-items:center; background:rgba(20,22,28,.85);
-               padding:8px 12px; border-radius:999px; opacity:.25; transition:opacity .2s; }
+               padding:8px 12px; border-radius:999px; opacity:.72; transition:opacity .2s;
+               z-index:var(--present-controls-layer); isolation:isolate; }
 #present-hud:hover { opacity:1; }
 #present-count { font-size:13px; color:var(--fg); min-width:60px; text-align:center; }
 """
 
 APP_JS = r"""
-const S = { version:0, figures:[], htmls:[], images:[], tables:[], theme:{}, slides:[], cur:0, sel:null, dragging:false, present:false, pcur:0, editingText:null, grid:true, snap:false, zoom:1, shapeKind:"rect", deckName:"presentation.cast.json" };
+const S = { version:0, figures:[], htmls:[], images:[], tables:[], theme:{}, workspace:{configured:false, filename:null}, slides:[], cur:0, sel:null, dragging:false, present:false, pcur:0, editingText:null, grid:true, snap:false, zoom:1, shapeKind:"rect", deckName:"presentation.cast.json" };
+const SLIDE_WIDTH = 1040;
+const SLIDE_HEIGHT = 585;
 let lastSlideId = null, lastStructSig = null;
 let refreshPromise = null, refreshQueued = false, renderRequestSeq = 0;
 let savedTextRange = null, savedTextBid = null;
 let suspendTextBlur = false;
 let statusResetTimer = null;
+const pendingTextContent = new Map();
+const textSaveChains = new Map();
 const legacyTextMigrations = new Set();
 
 const $ = (id) => document.getElementById(id);
@@ -401,9 +430,13 @@ function refresh() {
       refreshQueued = false;
       const next = await api("./state");
       if (S.dragging) { refreshQueued = true; break; }
+      for (const [bid, content] of pendingTextContent) {
+        const pending = next.slides.flatMap(slide=>slide.blocks).find(block=>block.id===bid);
+        if (pending && pending.type === "text") pending.content = content;
+      }
       S.version = next.version; S.figures = next.figures; S.htmls = next.htmls || [];
       S.images = next.images || []; S.tables = next.tables;
-      S.theme = next.theme; S.slides = next.slides;
+      S.theme = next.theme; S.workspace = next.workspace || {configured:false, filename:null}; S.slides = next.slides;
       canonicalizeTextBlocks();
       if (S.cur >= S.slides.length) S.cur = Math.max(0, S.slides.length - 1);
       if (S.sel && !S.slides.some(slide=>slide.blocks.some(b=>b.id===S.sel))) S.sel = null;
@@ -425,8 +458,13 @@ function refresh() {
 
 function applyTheme() {
   if (S.theme.accent) document.documentElement.style.setProperty("--accent", S.theme.accent);
-  document.documentElement.style.setProperty("--canvas-scale", S.zoom);
+  const viewport = $("canvas-viewport");
   const cv = $("canvas"); if (cv) {
+    if (viewport) {
+      viewport.style.width = (SLIDE_WIDTH * S.zoom) + "px";
+      viewport.style.height = (SLIDE_HEIGHT * S.zoom) + "px";
+    }
+    cv.style.transform = `scale(${S.zoom})`;
     cv.style.background = S.theme.bg || "#fff";
     cv.style.color = S.theme.fg || "#1a1d24";
     cv.style.fontFamily = S.theme.font || "";
@@ -444,12 +482,14 @@ function resizeFigures() {
 function fitStage() {
   const stage = $("stage");
   if (!stage) return;
-  const baseW = Math.min(stage.clientWidth - 64, 1040);
-  if (baseW <= 0) return;
-  const baseH = baseW * 9 / 16;
-  const availableW = Math.max(320, stage.clientWidth - 64);
-  const availableH = Math.max(180, stage.clientHeight - 64);
-  S.zoom = clamp(Math.floor(Math.min(availableW / baseW, availableH / baseH) * 100) / 100, 0.35, 1.6);
+  const availableW = stage.clientWidth - 64;
+  const availableH = stage.clientHeight - 64;
+  if (availableW <= 0 || availableH <= 0) return;
+  S.zoom = clamp(
+    Math.floor(Math.min(availableW / SLIDE_WIDTH, availableH / SLIDE_HEIGHT) * 100) / 100,
+    0.35,
+    1.6,
+  );
   applyTheme();
   renderTopbar();
 }
@@ -488,9 +528,12 @@ function renderTopbar() {
   $("add-image-btn").disabled = !S.slides.length;
   $("add-shape-btn").disabled = !S.slides.length;
   $("present-btn").disabled = !S.slides.length;
-  $("palette-hint").textContent =
-    !S.figures.length && !S.htmls.length && !S.images.length && !S.tables.length ? "Register a @cast.data, @cast.figure, @cast.html, or @cast.image object." :
-    !S.slides.length ? "Add a slide to begin." : "";
+  const saveButton = $("save-deck-btn");
+  saveButton.disabled = !S.workspace.configured;
+  saveButton.title = S.workspace.configured
+    ? `Save to ${S.workspace.filename} (Cmd/Ctrl+S)`
+    : "Create Cast('presentation.cast.json') to enable workspace saving";
+  $("palette-hint").textContent = !S.slides.length ? "Add a slide to begin." : "";
   if (S.theme.accent) $("theme-accent").value = S.theme.accent;
   if (S.theme.bg) $("theme-bg").value = S.theme.bg;
   if (S.theme.fg) $("theme-fg").value = S.theme.fg;
@@ -519,6 +562,66 @@ function renderShapePalette() {
 }
 
 /* ---------------- slide rail ---------------- */
+function buildMiniBlock(b) {
+  const st = b.style || {};
+  const mb = el("div", {class:"mini-block mini-"+b.type});
+  mb.style.left = (b.x*100)+"%"; mb.style.top = (b.y*100)+"%";
+  mb.style.width = (b.w*100)+"%"; mb.style.height = (b.h*100)+"%";
+  mb.style.zIndex = b.z || 0;
+  mb.style.opacity = st.opacity ?? 1;
+  mb.style.transform = `rotate(${st.rotate || 0}deg)`;
+
+  if (b.type === "text") {
+    const code = st.textVariant === "code";
+    mb.classList.toggle("code", code);
+    mb.style.background = Object.prototype.hasOwnProperty.call(st, "bg")
+      ? st.bg
+      : (code ? "#111827" : "transparent");
+    const rich = el("div", {class:"rich"});
+    rich.innerHTML = b.content || "";
+    rich.style.fontFamily = st.fontFamily || (code ? "ui-monospace,monospace" : (S.theme.font || "sans-serif"));
+    rich.style.fontSize = Math.max(3, Number(st.fontSize || (code ? 16 : 18)) * .15) + "px";
+    rich.style.color = st.color || (code ? "#e5e7eb" : (S.theme.fg || "#1a1d24"));
+    rich.style.textAlign = st.align || "left";
+    rich.style.fontWeight = st.weight || "";
+    rich.style.fontStyle = st.italic ? "italic" : "";
+    rich.style.lineHeight = st.lineHeight || (code ? 1.55 : 1.35);
+    mb.append(rich);
+  } else if (b.type === "image") {
+    const asset = b.image ? S.images.find(image=>image.name===b.image) : null;
+    const src = asset
+      ? `./render_image?image=${encodeURIComponent(asset.name)}&v=${asset.version || 0}`
+      : (st.src || "");
+    if (src) {
+      const img = el("img", {src, alt:"", loading:"lazy", decoding:"async"});
+      img.style.objectFit = st.fit || "contain";
+      img.style.imageRendering = st.rendering || "auto";
+      mb.append(img);
+    }
+  } else if (b.type === "shape") {
+    mb.innerHTML = shapeSvg(st);
+  } else if (b.type === "figure") {
+    const chart = el("div", {class:"mini-chart"});
+    for (const height of [42, 68, 51, 86, 64, 92]) {
+      chart.append(el("i", {style:`height:${height}%`}));
+    }
+    const figure = S.figures.find(item=>item.name === b.figure);
+    mb.append(chart, el("span", {class:"mini-label"}, figure?.title || b.figure || "Figure"));
+  } else if (b.type === "table") {
+    const table = S.tables.find(item=>item.name === b.table);
+    mb.append(
+      el("div", {class:"mini-table-head"}, table?.title || b.table || "Table"),
+      el("div", {class:"mini-table-grid"}),
+    );
+    if (st.headerBg) mb.firstElementChild.style.background = st.headerBg;
+    if (st.headerColor) mb.firstElementChild.style.color = st.headerColor;
+  } else if (b.type === "html") {
+    const htmlObject = S.htmls.find(item=>item.name === b.html);
+    mb.title = htmlObject?.title || b.html || "HTML";
+  }
+  return mb;
+}
+
 function renderRail() {
   const rail = $("rail");
   rail.innerHTML = "";
@@ -527,19 +630,24 @@ function renderRail() {
       e.stopPropagation();
       await api(`./slides/${s.id}`, {method:"DELETE"}); refresh();
     }}, "×");
+    const duplicate = el("button", {class:"dup", title:"Duplicate slide", "aria-label":"Duplicate slide", onclick: async (e)=>{
+      e.stopPropagation();
+      if (S.editingText) await stopTextEdit(S.editingText);
+      const result = await api(`./slides/${s.id}/duplicate`, {method:"POST"});
+      if (!result.id) return;
+      await refresh();
+      S.cur = Math.max(0, S.slides.findIndex(slide=>slide.id === result.id));
+      S.sel = null; lastSlideId = null; lastStructSig = null;
+      renderRail(); renderCanvas(); renderInspector();
+    }}, "⧉");
     const mini = el("div", {class:"mini"});
-    for (const b of s.blocks) {
-      const mb = el("div", {class:"mini-block mini-"+b.type});
-      mb.style.left = (b.x*100)+"%"; mb.style.top = (b.y*100)+"%";
-      mb.style.width = (b.w*100)+"%"; mb.style.height = (b.h*100)+"%";
-      mb.style.zIndex = b.z || 0;
-      if (b.type === "text") mb.textContent = plainTextFromHtml(b.content || "").slice(0, 22);
-      const st = b.style || {};
-      if (b.type === "shape" && st.fill) mb.style.background = st.fill;
-      mini.append(mb);
-    }
-    const thumb = el("div", {class:"thumb"+(i===S.cur?" active":""), onclick:()=>{ S.cur=i; S.sel=null; S.editingText=null; renderRail(); renderCanvas(); renderInspector(); }},
-      [mini, el("span", {class:"num"}, String(i+1)), del]);
+    mini.style.background = s.background || S.theme.bg || "#ffffff";
+    for (const b of s.blocks) mini.append(buildMiniBlock(b));
+    const thumb = el("div", {class:"thumb"+(i===S.cur?" active":""), onclick:async ()=>{
+      if (S.editingText) await stopTextEdit(S.editingText);
+      S.cur=i; S.sel=null; renderRail(); renderCanvas(); renderInspector();
+    }},
+      [mini, el("span", {class:"num"}, String(i+1)), duplicate, del]);
     rail.append(thumb);
   });
   rail.append(el("button", {class:"add-slide", onclick:()=> addSlideFromTemplate($("slide-template").value)}, "+ Slide"));
@@ -716,11 +824,21 @@ function attachRichTextHandlers(rich, bid) {
   rich.addEventListener("input", ()=>syncTextContent(bid, rich));
   rich.addEventListener("pointerdown", (e)=>{ if (rich.isContentEditable) e.stopPropagation(); });
   rich.addEventListener("keydown", (e)=>{
+    if ((e.metaKey || e.ctrlKey) && ["c","x","v"].includes(e.key.toLowerCase())) {
+      e.stopPropagation();
+      return;
+    }
     if (e.key === "Escape") { e.preventDefault(); rich.blur(); }
+  });
+  rich.addEventListener("copy", (e)=>e.stopPropagation());
+  rich.addEventListener("cut", (e)=>{
+    e.stopPropagation();
+    queueMicrotask(()=>syncTextContent(bid, rich));
   });
   rich.addEventListener("paste", (e)=>{
     if (!rich.isContentEditable) return;
     e.preventDefault();
+    e.stopPropagation();
     const html = e.clipboardData?.getData("text/html") || "";
     const text = e.clipboardData?.getData("text/plain") || "";
     document.execCommand("insertHTML", false, sanitizeRichHtml(html || plainTextToHtml(text)));
@@ -735,9 +853,10 @@ function syncTextContent(bid, rich, immediate=false) {
   const live = curSlide()?.blocks.find(x=>x.id===bid);
   if (!live) return Promise.resolve();
   live.content = rich.innerHTML;
+  pendingTextContent.set(bid, live.content);
   const body = rich.parentElement;
   if (body) body.dataset.renderSig = bodyRenderSig(live);
-  if (immediate) return patchBlock(bid, {content:live.content});
+  if (immediate) return queueTextSave(bid, live.content);
   pushBlockContent(bid, live.content);
   return Promise.resolve();
 }
@@ -772,7 +891,7 @@ function sanitizeRichHtml(input) {
   if (!input) return "";
   const parsed = new DOMParser().parseFromString(`<body>${input}</body>`, "text/html");
   const output = document.createElement("div");
-  const allowed = new Set(["P","BR","H1","H2","H3","UL","OL","LI","BLOCKQUOTE","STRONG","EM","U","S","A","CODE","PRE","HR","SUB","SUP"]);
+  const allowed = new Set(["P","BR","H1","H2","H3","UL","OL","LI","BLOCKQUOTE","STRONG","EM","U","S","A","CODE","PRE","HR","SUB","SUP","SPAN"]);
   const dropped = new Set(["SCRIPT","STYLE","IFRAME","OBJECT","EMBED","FORM","INPUT","BUTTON","SVG","MATH"]);
   const copyChildren = (source, target)=>{
     for (const child of source.childNodes) {
@@ -792,6 +911,16 @@ function sanitizeRichHtml(input) {
           if (/^https?:/i.test(href)) clean.setAttribute("target", "_blank");
           clean.setAttribute("rel", "noopener noreferrer");
         }
+      }
+      if (tag === "SPAN") {
+        const safe = [];
+        const weight = child.style.fontWeight.toLowerCase();
+        const fontStyle = child.style.fontStyle.toLowerCase();
+        const decoration = child.style.textDecorationLine.toLowerCase();
+        if (/^(normal|bold|bolder|lighter|[1-9]00)$/.test(weight)) safe.push(`font-weight:${weight}`);
+        if (/^(normal|italic)$/.test(fontStyle)) safe.push(`font-style:${fontStyle}`);
+        if (/^(none|underline|line-through|underline line-through|line-through underline)$/.test(decoration)) safe.push(`text-decoration-line:${decoration}`);
+        if (safe.length) clean.setAttribute("style", safe.join(";"));
       }
       copyChildren(child, clean);
       target.append(clean);
@@ -902,7 +1031,17 @@ function shapeSvg(st) {
   return `<svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style="display:block;overflow:visible">${inner}</svg>`;
 }
 
-const pushBlockContent = debounce((bid, content)=> patchBlock(bid, {content}), 220);
+function queueTextSave(bid, content) {
+  pendingTextContent.set(bid, content);
+  const previous = textSaveChains.get(bid) || Promise.resolve();
+  const next = previous.catch(()=>{}).then(()=>patchBlock(bid, {content}));
+  textSaveChains.set(bid, next);
+  return next.finally(()=>{
+    if (textSaveChains.get(bid) === next) textSaveChains.delete(bid);
+    if (pendingTextContent.get(bid) === content && !textSaveChains.has(bid)) pendingTextContent.delete(bid);
+  });
+}
+const pushBlockContent = debounce((bid, content)=> queueTextSave(bid, content), 220);
 
 function startTextEdit(bid, event=null) {
   if (S.editingText && S.editingText !== bid) stopTextEdit(S.editingText);
@@ -929,6 +1068,7 @@ function stopTextEdit(bid=S.editingText) {
   const rich = wrap?.querySelector(":scope > .body > .rich");
   let saved = Promise.resolve();
   if (rich && b) {
+    pushBlockContent.cancel();
     const clean = sanitizeRichHtml(rich.innerHTML);
     if (clean !== rich.innerHTML) rich.innerHTML = clean;
     saved = syncTextContent(bid, rich, true);
@@ -1501,8 +1641,16 @@ function fmtBtn(label, fn, title, command=null, value=null) {
   const b = el("button", {class:"fmt", type:"button", title}, label);
   if (command) b.dataset.command = command;
   if (value) b.dataset.value = value;
+  b.addEventListener("pointerdown", (e)=>{
+    suspendTextBlur = true;
+    e.preventDefault();
+  });
   b.addEventListener("mousedown", (e)=> e.preventDefault());
-  b.addEventListener("click", ()=> fn());
+  b.addEventListener("click", ()=>{
+    try { fn(); }
+    finally { queueMicrotask(()=>{ suspendTextBlur = false; }); }
+  });
+  b.addEventListener("pointercancel", ()=>{ suspendTextBlur = false; });
   return b;
 }
 function richToolbar(b) {
@@ -1612,22 +1760,20 @@ async function flushDeckEdits() {
 }
 
 async function saveEditableDeck() {
+  const button = $("save-deck-btn");
   try {
+    button.disabled = true;
     showStatus("saving", 0);
     await flushDeckEdits();
-    const response = await fetch("./deck", {cache:"no-store"});
-    if (!response.ok) throw new Error(`Save failed (${response.status}).`);
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = el("a", {href:url, download:S.deckName || "presentation.cast.json"});
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 1000);
-    showStatus("saved");
+    const response = await fetch("./deck/save", {method:"POST"});
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || `Save failed (${response.status}).`);
+    showStatus(`saved ${result.filename || "workspace"}`);
   } catch (error) {
     showStatus("save failed", 2600);
     alert(`Could not save presentation.\n\n${error.message || error}`);
+  } finally {
+    renderTopbar();
   }
 }
 
@@ -1655,17 +1801,18 @@ async function openEditableDeck(file) {
 }
 
 /* ---------------- present mode ---------------- */
-function enterPresent() {
+async function enterPresent() {
   if (!S.slides.length) return;
-  if (S.editingText) stopTextEdit(S.editingText);
+  if (S.editingText) await stopTextEdit(S.editingText);
   S.present = true; S.pcur = S.cur; $("present-overlay").hidden = false; sizePresent(); renderPresent();
 }
 function exitPresent() { S.present = false; $("present-overlay").hidden = true; }
 function sizePresent() {
-  const stage = $("present-stage"), cv = $("present-canvas");
-  const W = stage.clientWidth, H = stage.clientHeight;
-  let w = W, h = w*9/16; if (h > H) { h = H; w = h*16/9; }
-  cv.style.width = w+"px"; cv.style.height = h+"px";
+  const stage = $("present-stage"), viewport = $("present-viewport"), cv = $("present-canvas");
+  const scale = Math.min(stage.clientWidth / SLIDE_WIDTH, stage.clientHeight / SLIDE_HEIGHT);
+  viewport.style.width = (SLIDE_WIDTH * scale) + "px";
+  viewport.style.height = (SLIDE_HEIGHT * scale) + "px";
+  cv.style.transform = `scale(${scale})`;
   cv.style.background = S.theme.bg || "#fff"; cv.style.color = S.theme.fg || "#1a1d24"; cv.style.fontFamily = S.theme.font || "";
 }
 function renderPresent() {
@@ -1737,6 +1884,7 @@ function addShape() {
 }
 
 async function addSlideFromTemplate(kind="blank") {
+  if (S.editingText) await stopTextEdit(S.editingText);
   const r = await api("./slides", {method:"POST"});
   await refresh();
   S.cur = Math.max(0, S.slides.findIndex(s=>s.id === r.id));
@@ -1815,6 +1963,11 @@ window.addEventListener("resize", ()=>{ resizeFigures(); if (S.present) { sizePr
 
 const pushGeom = debounce((id, g)=> patchBlock(id, g), 200);
 window.addEventListener("keydown", (e)=>{
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+    e.preventDefault();
+    if (S.workspace.configured) saveEditableDeck();
+    return;
+  }
   if (S.present) {
     if (e.key === "ArrowRight" || e.key === " ") presentGo(1);
     else if (e.key === "ArrowLeft") presentGo(-1);
@@ -1856,5 +2009,5 @@ function connect() {
   es.onmessage = ()=> refresh();
   es.onerror = ()=> $("status").textContent = "reconnecting…";
 }
-refresh().then(connect);
+refresh().then(()=>{ fitStage(); connect(); });
 """
