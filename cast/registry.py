@@ -39,8 +39,10 @@ import polars as pl
 class Table:
     name: str
     title: str
-    lazyframe: pl.LazyFrame
+    fn: Callable[..., object]
+    lazyframe: Optional[pl.LazyFrame]
     version: int
+    resolve_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 @dataclass
@@ -174,10 +176,41 @@ class Registry:
         return self._version
 
     # ----- assets ------------------------------------------------------- #
-    def register_table(self, name: str, title: str, lf: pl.LazyFrame) -> None:
+    def register_table_factory(self, name: str, title: str, fn: Callable) -> None:
         with self._lock:
             v = self._bump()
-            self._tables[name] = Table(name=name, title=title, lazyframe=lf, version=v)
+            self._tables[name] = Table(
+                name=name, title=title, fn=fn, lazyframe=None, version=v
+            )
+
+    def update_table(
+        self, name: str, title: str, fn: Callable, value: object
+    ) -> None:
+        lf = _require_lazyframe(name, value)
+        with self._lock:
+            v = self._bump()
+            current = self._tables.get(name)
+            if current is None:
+                self._tables[name] = Table(
+                    name=name, title=title, fn=fn, lazyframe=lf, version=v
+                )
+            else:
+                current.title = title
+                current.fn = fn
+                current.lazyframe = lf
+                current.version = v
+
+    def _resolve_table(self, table: Table) -> pl.LazyFrame:
+        if table.lazyframe is not None:
+            return table.lazyframe
+        with table.resolve_lock:
+            if table.lazyframe is not None:
+                return table.lazyframe
+            lf = _require_lazyframe(table.name, table.fn())
+            with self._lock:
+                if self._tables.get(table.name) is table:
+                    table.lazyframe = lf
+            return lf
 
     def register_figure(self, name: str, title: str, fn: Callable) -> None:
         with self._lock:
@@ -206,7 +239,7 @@ class Registry:
             return ApplyResult(ok=False, error=f"Unknown table '{table_name}'.")
         try:
             if tbl is not None:
-                result = fig.fn(tbl.lazyframe)
+                result = fig.fn(self._resolve_table(tbl))
             else:
                 try:
                     result = fig.fn(None)
@@ -274,7 +307,7 @@ class Registry:
 
         limit = max(1, min(int(limit), 1000))
         try:
-            frame = table.lazyframe.limit(limit + 1).collect()
+            frame = self._resolve_table(table).limit(limit + 1).collect()
             truncated = frame.height > limit
             if truncated:
                 frame = frame.head(limit)
@@ -452,6 +485,15 @@ class Registry:
                     for s in self._slides
                 ],
             }
+
+
+def _require_lazyframe(name: str, value: object) -> pl.LazyFrame:
+    if isinstance(value, pl.LazyFrame):
+        return value
+    raise TypeError(
+        f"@cast.data function '{name}' must return a polars.LazyFrame, "
+        f"got {type(value).__name__}. Use .lazy() if you have a DataFrame."
+    )
 
 
 def _decode_deck(document: dict) -> tuple[dict, List[Slide]]:

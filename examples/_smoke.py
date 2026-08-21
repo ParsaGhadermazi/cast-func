@@ -53,14 +53,10 @@ def vector_badge():
     return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120"><rect width="240" height="120" fill="#5b8cff"/><text x="120" y="70" text-anchor="middle" fill="white" font-size="28">cast</text></svg>'
 
 
-# @figure registers at decoration; no table call needed.
-# decorated funcs still pass through their original return value
-assert isinstance(monthly(), pl.LazyFrame)
-wide()
-
 client = TestClient(app)
 
 # ----- assets ------------------------------------------------------------- #
+# Every decorator registers at decoration time; no function call is required.
 st = client.get("/state").json()
 assert {f["name"] for f in st["figures"]} == {"trend", "standalone"}, st["figures"]
 assert {h["name"] for h in st["htmls"]} == {"note"}, st["htmls"]
@@ -68,6 +64,12 @@ assert {image["name"] for image in st["images"]} == {"raster_pixel", "vector_bad
 assert {t["name"] for t in st["tables"]} == {"monthly", "wide"}, st["tables"]
 assert st["slides"] == [], st["slides"]
 assert st["theme"]["accent"], st["theme"]
+
+# Calling a @data function still returns its value and refreshes the live table.
+monthly_version = next(t["version"] for t in st["tables"] if t["name"] == "monthly")
+assert isinstance(monthly(), pl.LazyFrame)
+st = client.get("/state").json()
+assert next(t["version"] for t in st["tables"] if t["name"] == "monthly") > monthly_version
 
 # ----- render (live re-run) ----------------------------------------------- #
 ok = client.get("/render", params={"figure": "trend", "table": "monthly"}).json()
@@ -113,7 +115,8 @@ fig_bid = client.post(
 # a text block
 txt_bid = client.post(
     f"/slides/{sid1}/blocks",
-    json={"type": "text", "content": "<h2>Hello</h2>", "x": 0.6, "y": 0.1, "w": 0.3, "h": 0.2},
+    json={"type": "text", "content": "<pre>print('hello')</pre>", "x": 0.6, "y": 0.1,
+          "w": 0.3, "h": 0.2, "style": {"textVariant": "code"}},
 ).json()["id"]
 # an HTML block
 html_bid = client.post(
@@ -147,19 +150,21 @@ assert next(b for b in slide1["blocks"] if b["id"] == txt_bid)["z"] > fig_block[
 # patch geometry + content
 assert client.patch(f"/blocks/{fig_bid}", json={"table": "wide", "x": 0.2}).json()["ok"]
 assert client.patch(f"/blocks/{txt_bid}",
-                    json={"content": "<p><strong>Updated</strong></p>", "style": {"size": 24}}).json()["ok"]
+                    json={"content": "<p><strong>Updated</strong></p>",
+                          "style": {"size": 24, "textVariant": "code"}}).json()["ok"]
 st = client.get("/state").json()
 slide1 = next(s for s in st["slides"] if s["id"] == sid1)
 fig_block = next(b for b in slide1["blocks"] if b["id"] == fig_bid)
 txt_block = next(b for b in slide1["blocks"] if b["id"] == txt_bid)
 assert fig_block["table"] == "wide" and fig_block["x"] == 0.2
 assert txt_block["content"] == "<p><strong>Updated</strong></p>" and txt_block["style"]["size"] == 24
+assert txt_block["style"]["textVariant"] == "code"
 
 # remove a block
-assert client.delete(f"/blocks/{txt_bid}").json()["ok"] is True
+assert client.delete(f"/blocks/{html_bid}").json()["ok"] is True
 st = client.get("/state").json()
 slide1 = next(s for s in st["slides"] if s["id"] == sid1)
-assert {b["id"] for b in slide1["blocks"]} == {fig_bid, html_bid, table_bid, image_bid}
+assert {b["id"] for b in slide1["blocks"]} == {fig_bid, txt_bid, table_bid, image_bid}
 
 # ----- deck: theme -------------------------------------------------------- #
 assert client.patch("/theme", json={"accent": "#ff0000", "bg": "#222222"}).json()["ok"]
@@ -192,6 +197,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     exported = export_path.read_text(encoding="utf-8")
     assert "renderFrozenTable" in exported and '"title": "Monthly"' in exported
     assert "data:image/png;base64," in exported
+    assert "code-text" in exported and '"textVariant": "code"' in exported
 
     editable_path = Path(tmpdir) / "deck.cast.json"
     assert cast.save(editable_path) == str(editable_path.resolve())
@@ -206,7 +212,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     assert [s["id"] for s in restored["slides"]] == [sid2, sid1]
     assert restored["theme"]["accent"] == "#ff0000"
     restored_slide = next(s for s in restored["slides"] if s["id"] == sid1)
-    assert {b["id"] for b in restored_slide["blocks"]} == {fig_bid, html_bid, table_bid, image_bid}
+    assert {b["id"] for b in restored_slide["blocks"]} == {fig_bid, txt_bid, table_bid, image_bid}
 
     # Loading also restores id sequences, so future edits cannot collide.
     sid3 = client.post("/slides").json()["id"]

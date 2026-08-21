@@ -39,7 +39,7 @@ def trend(tbl):
     df = tbl.select(["month", "revenue"]).collect()
     return px.line(df, x="month", y="revenue", markers=True)
 
-sales()                            # register the table, then build the deck in the browser
+# Build the deck in the browser; no registration call is needed.
 ```
 
 That is the entire program. Open the printed URL, add the `trend` figure with
@@ -62,10 +62,9 @@ import cast
 ## The decorators
 
 Everything on a slide begins as a decorated function in the notebook.
-Registration is a side effect of *calling* the function (for `@data`) or of
-*defining* it (for the factories), and each decorated function still returns its
-original value, so existing notebook code is unaffected. Every decorator
-supports both the bare form (`@cast.data`) and the parameterized form
+Registration happens when the function is defined, and each decorated function
+still returns its original value, so existing notebook code is unaffected. Every
+decorator supports both the bare form (`@cast.data`) and the parameterized form
 (`@cast.data(name=..., title=...)`).
 
 | Decorator | The function returns | Registered as |
@@ -87,8 +86,10 @@ def forecast():
     return pl.scan_parquet("forecast.parquet")
 ```
 
-Calling the function registers the table. Calling it again with new data updates
-every slide that uses it, live, with no reload or re-export. Data sources feed
+The decorator registers the table immediately and resolves its `LazyFrame`
+lazily when a figure or table block first needs it. Calling the function remains
+optional; calling it again refreshes every slide that uses it, live, with no
+reload or re-export. Data sources feed
 both figures and table blocks. Table blocks render with sticky column headers,
 horizontal and vertical scrolling, optional row numbers and stripes, and a
 preview limit of up to 1,000 rows; the same scrollable table is preserved in
@@ -156,7 +157,9 @@ Once assets are registered, the browser is a free-form canvas:
   the same element used for presentation, so typography, wrapping, and spacing do
   not change between design and present modes; font, size, color, weight,
   alignment, and line height are set in the inspector, and double-clicking a text
-  block edits it in place.
+  block edits it in place. The text style menu also includes a polished code
+  treatment with monospace defaults, code-safe whitespace, and an editor-like
+  frame that is preserved in present mode and frozen exports.
 - A theme sets accent, background, foreground, and font once for the whole deck.
 - Edits stream over Server-Sent Events, so multiple tabs and changing data stay
   in sync.

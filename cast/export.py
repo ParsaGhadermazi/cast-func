@@ -129,6 +129,12 @@ _TEMPLATE = r"""<!doctype html>
   .block {{ position:absolute; }}
   .block .body {{ width:100%; height:100%; overflow:hidden; }}
   .block .body.text {{ padding:10px 14px; }}
+  .block .body.text.code-text {{ position:relative; padding:36px 20px 16px; border:1px solid rgba(148,163,184,.24);
+    border-radius:6px; box-shadow:inset 0 1px rgba(255,255,255,.06), 0 10px 26px rgba(15,23,42,.2); }}
+  .block .body.text.code-text::before {{ content:""; position:absolute; top:14px; left:16px; width:7px; height:7px;
+    border-radius:50%; background:#fb7185; box-shadow:11px 0 #fbbf24, 22px 0 #34d399; pointer-events:none; }}
+  .block .body.text.code-text .rich {{ height:100%; min-height:0; overflow:auto; overflow-wrap:normal;
+    white-space:pre-wrap; tab-size:2; scrollbar-gutter:stable; }}
   .block .body.image {{ display:flex; align-items:center; justify-content:center; }}
   .block .body.image img {{ width:100%; height:100%; display:block; }}
   .block .body.html iframe {{ width:100%; height:100%; border:0; display:block; background:white; }}
@@ -250,13 +256,14 @@ function shapeSvg(st) {{
 
 function textStyle(node, st) {{
   st = st || {{}};
-  if (st.fontFamily) node.style.fontFamily = st.fontFamily;
-  node.style.fontSize = (st.fontSize || 18) + "px";
-  if (st.color) node.style.color = st.color;
+  const code = st.textVariant === "code";
+  node.style.fontFamily = st.fontFamily || (code ? "'Roboto Mono',ui-monospace,SFMono-Regular,Menlo,monospace" : "");
+  node.style.fontSize = (st.fontSize || (code ? 16 : 18)) + "px";
+  node.style.color = st.color || (code ? "#e5e7eb" : "");
   node.style.textAlign = st.align || "left";
   if (st.weight) node.style.fontWeight = st.weight;
   if (st.italic) node.style.fontStyle = "italic";
-  if (st.lineHeight) node.style.lineHeight = st.lineHeight;
+  node.style.lineHeight = st.lineHeight || (code ? 1.55 : "");
 }}
 
 function renderFrozenTable(body, b, st) {{
@@ -313,6 +320,7 @@ function render() {{
     wrap.append(body); cv.append(wrap);
 
     const st = b.style || {{}};
+    if (b.type === "text" && st.textVariant === "code") body.classList.add("code-text");
     if (b.type === "figure") {{
       if (b.plotly) {{
         const fig = JSON.parse(b.plotly);
@@ -365,7 +373,7 @@ function render() {{
       body.style.filter = st.shadow ? "drop-shadow(0 "+st.shadow+"px "+(st.shadow * 2)+"px rgba(0,0,0,.28))" : "";
       body.innerHTML = shapeSvg(st);
     }} else {{
-      body.style.background = (st.bg && st.bg !== "transparent") ? st.bg : "transparent";
+      body.style.background = Object.prototype.hasOwnProperty.call(st, "bg") ? st.bg : (st.textVariant === "code" ? "#111827" : "transparent");
       const text = document.createElement("div");
       text.className = "rich";
       text.innerHTML = b.content != null

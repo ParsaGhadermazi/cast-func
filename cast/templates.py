@@ -216,6 +216,12 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 .block { position:absolute; overflow:visible; }
 .block .body { width:100%; height:100%; overflow:hidden; }
 .block .body.text { padding:10px 14px; }
+.block .body.text.code-text { position:relative; padding:36px 20px 16px; border:1px solid rgba(148,163,184,.24);
+  border-radius:6px; box-shadow:inset 0 1px rgba(255,255,255,.06), 0 10px 26px rgba(15,23,42,.2); }
+.block .body.text.code-text::before { content:""; position:absolute; top:14px; left:16px; width:7px; height:7px;
+  border-radius:50%; background:#fb7185; box-shadow:11px 0 #fbbf24, 22px 0 #34d399; pointer-events:none; }
+.block .body.text.code-text .rich { height:100%; min-height:0; overflow:auto; overflow-wrap:normal;
+  white-space:pre-wrap; tab-size:2; scrollbar-gutter:stable; }
 .block .body.html iframe { width:100%; height:100%; border:0; display:block; background:white; }
 .editing .block.html iframe { pointer-events:none; }
 .editing .block { outline:1px dashed rgba(120,130,150,.4); }
@@ -645,18 +651,21 @@ function syncCanvas() {
 }
 
 function applyTextStyle(node, st) {
-  node.style.fontFamily = st.fontFamily || "";
-  node.style.fontSize = (st.fontSize || 18) + "px";
-  node.style.color = st.color || "";
+  const code = st.textVariant === "code";
+  node.style.fontFamily = st.fontFamily || (code ? "'Roboto Mono',ui-monospace,SFMono-Regular,Menlo,monospace" : "");
+  node.style.fontSize = (st.fontSize || (code ? 16 : 18)) + "px";
+  node.style.color = st.color || (code ? "#e5e7eb" : "");
   node.style.textAlign = st.align || "left";
   node.style.fontWeight = st.weight || "";
   node.style.fontStyle = st.italic ? "italic" : "";
-  node.style.lineHeight = st.lineHeight || "";
+  node.style.lineHeight = st.lineHeight || (code ? 1.55 : "");
 }
 
 function renderTextInto(body, b) {
   const st = b.style || {};
-  body.style.background = (st.bg && st.bg !== "transparent") ? st.bg : "transparent";
+  const code = st.textVariant === "code";
+  body.classList.toggle("code-text", code);
+  body.style.background = Object.prototype.hasOwnProperty.call(st, "bg") ? st.bg : (code ? "#111827" : "transparent");
   let rich = body.querySelector(":scope > .rich");
   if (!rich) {
     body.innerHTML = "";
@@ -1222,6 +1231,9 @@ function renderInspector() {
   ];
   if (b.type === "text") {
     rows.push(el("h3", {}, "Text"));
+    rows.push(styleRow("Style", selectInput(
+      ["plain","code"], st.textVariant||"plain", v=>setTextVariant(b, v), ["Plain","Code"]
+    )));
     rows.push(richToolbar(b));
     const editing = S.editingText === b.id;
     rows.push(el("button", {
@@ -1482,6 +1494,7 @@ function richToolbar(b) {
     fmtBtn("H1", ()=>richCommand(b.id, "formatBlock", "h1"), "Heading 1", "formatBlock", "h1"),
     fmtBtn("H2", ()=>richCommand(b.id, "formatBlock", "h2"), "Heading 2", "formatBlock", "h2"),
     fmtBtn("P", ()=>richCommand(b.id, "formatBlock", "p"), "Paragraph", "formatBlock", "p"),
+    fmtBtn("<>", ()=>richCommand(b.id, "formatBlock", "pre"), "Code block", "formatBlock", "pre"),
     fmtBtn("B", ()=>richCommand(b.id, "bold"), "Bold", "bold"),
     fmtBtn("I", ()=>richCommand(b.id, "italic"), "Italic", "italic"),
     fmtBtn("U", ()=>richCommand(b.id, "underline"), "Underline", "underline"),
@@ -1556,6 +1569,21 @@ function patchStyle(b, patch) {
   // Some shape/image controls change which other controls are shown.
   if (live.type === "shape" && "shape" in patch) renderInspector();
   patchBlock(b.id, {style: live.style});
+}
+function setTextVariant(b, variant) {
+  const code = variant === "code";
+  patchStyle(b, code ? {
+    textVariant:"code",
+    fontFamily:"'Roboto Mono',ui-monospace,SFMono-Regular,Menlo,monospace",
+    fontSize:16, lineHeight:1.55, color:"#e5e7eb", bg:"#111827",
+    align:"left", weight:"normal", italic:false,
+  } : {
+    textVariant:"plain",
+    fontFamily:S.theme.font || FONTS[0][1],
+    fontSize:18, lineHeight:1.45, color:S.theme.fg || "#1a1d24", bg:"transparent",
+    align:"left", weight:"normal", italic:false,
+  });
+  renderInspector();
 }
 async function patchBlock(bid, patch) { await api(`./blocks/${bid}`, jbody("PATCH", patch)); }
 

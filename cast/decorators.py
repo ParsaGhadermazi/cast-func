@@ -1,17 +1,14 @@
 """The public decorators: ``@data``, ``@figure``, ``@html``, and ``@image``.
 
-Both support the bare form (``@cast.data``) and the parameterized form
-(``@cast.data(name=..., title=...)``). Registration is a side effect of
-*calling* the decorated function; the original return value is passed through
-so notebook usage and inline previews are unaffected.
+All decorators support bare and parameterized forms and register their asset at
+decoration time. Calling a decorated function still returns its original value;
+calling a ``@data`` function also refreshes its cached table for live slides.
 """
 
 from __future__ import annotations
 
 import functools
 from typing import Callable, Optional
-
-import polars as pl
 
 from .registry import registry
 
@@ -22,22 +19,21 @@ def _humanize(name: str) -> str:
 
 def data(fn: Optional[Callable] = None, *, name: Optional[str] = None,
          title: Optional[str] = None):
-    """Register a Polars ``LazyFrame``-returning function as a named table."""
+    """Register a lazy Polars ``LazyFrame`` factory as a named table.
+
+    The table appears in the editor at decoration time and resolves on first
+    use. Calling the decorated function explicitly refreshes its cached value.
+    """
 
     def decorate(func: Callable) -> Callable:
         reg_name = name or func.__name__
         reg_title = title or _humanize(reg_name)
+        registry.register_table_factory(reg_name, reg_title, func)
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             lf = func(*args, **kwargs)
-            if not isinstance(lf, pl.LazyFrame):
-                raise TypeError(
-                    f"@cast.data function '{func.__name__}' must return a "
-                    f"polars.LazyFrame, got {type(lf).__name__}. "
-                    "Use .lazy() if you have a DataFrame."
-                )
-            registry.register_table(reg_name, reg_title, lf)
+            registry.update_table(reg_name, reg_title, func, lf)
             return lf
 
         return wrapper

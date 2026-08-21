@@ -96,11 +96,8 @@ def workflow_image():
 if __name__ == "__main__":
     port = int(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CAST_PORT", "8000"))
     cast.serve(port=port)
-    # @figure registers its factory at decoration time — no table needed here.
-    # Calling the @data functions registers the tables.
-    monthly()
-    daily()
-    wide()
+    # All decorated assets register at definition time. Data functions resolve
+    # lazily when a table or figure first uses them.
     print(f"Registered. Open http://127.0.0.1:{port}  (Ctrl-C to stop)")
     while True:
         time.sleep(1)
