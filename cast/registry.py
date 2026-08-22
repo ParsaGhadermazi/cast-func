@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 from urllib.parse import unquote_to_bytes
 
+import pandas as pd
 import polars as pl
 
 
@@ -40,7 +41,7 @@ class Table:
     name: str
     title: str
     fn: Callable[..., object]
-    lazyframe: Optional[pl.LazyFrame]
+    dataframe: Optional[pl.DataFrame]
     version: int
     resolve_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -49,7 +50,7 @@ class Table:
 class Figure:
     name: str
     title: str
-    fn: Callable[[pl.LazyFrame], object]
+    fn: Callable[[pl.DataFrame], object]
 
 
 @dataclass
@@ -180,37 +181,37 @@ class Registry:
         with self._lock:
             v = self._bump()
             self._tables[name] = Table(
-                name=name, title=title, fn=fn, lazyframe=None, version=v
+                name=name, title=title, fn=fn, dataframe=None, version=v
             )
 
     def update_table(
         self, name: str, title: str, fn: Callable, value: object
     ) -> None:
-        lf = _require_lazyframe(name, value)
+        frame = _coerce_dataframe(name, value)
         with self._lock:
             v = self._bump()
             current = self._tables.get(name)
             if current is None:
                 self._tables[name] = Table(
-                    name=name, title=title, fn=fn, lazyframe=lf, version=v
+                    name=name, title=title, fn=fn, dataframe=frame, version=v
                 )
             else:
                 current.title = title
                 current.fn = fn
-                current.lazyframe = lf
+                current.dataframe = frame
                 current.version = v
 
-    def _resolve_table(self, table: Table) -> pl.LazyFrame:
-        if table.lazyframe is not None:
-            return table.lazyframe
+    def _resolve_table(self, table: Table) -> pl.DataFrame:
+        if table.dataframe is not None:
+            return table.dataframe
         with table.resolve_lock:
-            if table.lazyframe is not None:
-                return table.lazyframe
-            lf = _require_lazyframe(table.name, table.fn())
+            if table.dataframe is not None:
+                return table.dataframe
+            frame = _coerce_dataframe(table.name, table.fn())
             with self._lock:
                 if self._tables.get(table.name) is table:
-                    table.lazyframe = lf
-            return lf
+                    table.dataframe = frame
+            return frame
 
     def register_figure(self, name: str, title: str, fn: Callable) -> None:
         with self._lock:
@@ -326,7 +327,7 @@ class Registry:
 
         limit = max(1, min(int(limit), 1000))
         try:
-            frame = self._resolve_table(table).limit(limit + 1).collect()
+            frame = self._resolve_table(table).head(limit + 1)
             truncated = frame.height > limit
             if truncated:
                 frame = frame.head(limit)
@@ -534,12 +535,14 @@ class Registry:
             }
 
 
-def _require_lazyframe(name: str, value: object) -> pl.LazyFrame:
-    if isinstance(value, pl.LazyFrame):
+def _coerce_dataframe(name: str, value: object) -> pl.DataFrame:
+    if isinstance(value, pl.DataFrame):
         return value
+    if isinstance(value, pd.DataFrame):
+        return pl.from_pandas(value)
     raise TypeError(
-        f"@cast.data function '{name}' must return a polars.LazyFrame, "
-        f"got {type(value).__name__}. Use .lazy() if you have a DataFrame."
+        f"@cast.data function '{name}' must return a pandas.DataFrame, "
+        f"or polars.DataFrame; got {type(value).__name__}."
     )
 
 

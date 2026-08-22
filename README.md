@@ -32,13 +32,13 @@ import cast, polars as pl, plotly.express as px
 deck = cast.Cast("sales.cast.json")  # opens this workspace, or creates it
 deck.serve()                          # live editor in a background thread
 
-@deck.data                         # returns a polars LazyFrame -> a data source
+@deck.data                         # pandas or Polars dataframe -> a data source
 def sales():
-    return pl.scan_parquet("sales.parquet")
+    return pl.read_parquet("sales.parquet")
 
 @deck.figure                       # a factory: takes one table, returns a Plotly figure
 def trend(tbl):
-    df = tbl.select(["month", "revenue"]).collect()
+    df = tbl.select(["month", "revenue"])
     return px.line(df, x="month", y="revenue", markers=True)
 
 # Build the deck in the browser; no registration call is needed.
@@ -74,7 +74,7 @@ level (`cast.data`, `cast.figure`, `cast.html`, `cast.image`); `deck.data` and
 
 | Decorator | The function returns | Registered as |
 | --- | --- | --- |
-| `@deck.data` | a `polars.LazyFrame` | a data source that feeds figures and table blocks |
+| `@deck.data` | a pandas or Polars `DataFrame` | a data source that feeds figures and table blocks |
 | `@deck.figure` | *(factory)* a Plotly figure from a table | a chart that can be rebound to any table |
 | `@deck.html` | an HTML string (or an object with `_repr_html_`) | a sandboxed iframe block |
 | `@deck.image` | a path, bytes, SVG, or data URI | an original-quality image asset |
@@ -82,19 +82,32 @@ level (`cast.data`, `cast.figure`, `cast.html`, `cast.image`); `deck.data` and
 ### `@deck.data`
 
 ```python
+import pandas as pd
+import polars as pl
+
 @deck.data
 def sales():
-    return pl.scan_parquet("sales.parquet")
+    return pl.read_parquet("sales.parquet")
 
 @deck.data(title="Q2 Forecast")
 def forecast():
-    return pl.scan_parquet("forecast.parquet")
+    return pl.read_parquet("forecast.parquet")
+
+@deck.data(title="Customer segments")
+def segments():
+    return pd.read_csv("segments.csv")
 ```
 
-The decorator registers the table immediately and resolves its `LazyFrame`
-lazily when a figure or table block first needs it. Calling the function remains
-optional; calling it again refreshes every slide that uses it, live, with no
-reload or re-export. Data sources feed
+`@deck.data` accepts `pandas.DataFrame` and `polars.DataFrame`. Pandas frames
+are converted once to a `polars.DataFrame`, so figure factories always receive
+the same eager Polars dataframe interface regardless of how the source was
+created. The decorated function still returns its original dataframe type when
+called directly.
+
+The decorator registers the table immediately and resolves it when a figure or
+table block first needs it. Calling the function remains optional;
+calling it again refreshes every slide that uses it, live, with no reload or
+re-export. Data sources feed
 both figures and table blocks. Table blocks render with sticky column headers,
 horizontal and vertical scrolling, optional row numbers and stripes, and a
 preview limit of up to 1,000 rows; the same scrollable table is preserved in
@@ -105,7 +118,7 @@ present mode and in exports.
 ```python
 @deck.figure(title="Value over time")
 def trend(tbl):
-    df = tbl.select(["date", "value"]).collect()
+    df = tbl.select(["date", "value"])
     return px.line(df, x="date", y="value", markers=True)
 ```
 
@@ -236,7 +249,7 @@ The full source is in [`examples/demo.py`](examples/demo.py).
 | --- | --- |
 | `cast.Cast(path)` | Open an existing `.cast.json` workspace or create a new one. |
 | `deck.serve(port=8000, host="127.0.0.1", open=False)` | Start the editor in a background thread and return the URL; `open=True` embeds an IFrame in a notebook. Idempotent. |
-| `@deck.data` / `@deck.data(name=, title=)` | Register a `LazyFrame`-returning function as a data source. |
+| `@deck.data` / `@deck.data(name=, title=)` | Register a pandas or Polars dataframe-returning function as a data source. |
 | `@deck.figure` / `@deck.figure(name=, title=)` | Register a `table -> Plotly figure` factory. |
 | `@deck.html` / `@deck.html(name=, title=)` | Register an HTML-returning factory for iframe blocks. |
 | `@deck.image` / `@deck.image(name=, title=, alt=)` | Register an original-quality image asset. |

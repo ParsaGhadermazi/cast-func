@@ -23,7 +23,7 @@ deck = cast.Cast(os.environ.get("CAST_FILE", "demo.cast.json"))
 
 @deck.data
 def monthly():
-    return pl.LazyFrame(
+    return pl.DataFrame(
         {
             "date": ["2026-01", "2026-02", "2026-03", "2026-04"],
             "value": [120, 150, 90, 200],
@@ -33,7 +33,7 @@ def monthly():
 
 @deck.data
 def daily():
-    return pl.LazyFrame(
+    return pl.DataFrame(
         {
             "date": ["2026-06-01", "2026-06-02", "2026-06-03"],
             "value": [12, 19, 7],
@@ -43,12 +43,12 @@ def daily():
 
 @deck.data(title="Wide (no date/value)")
 def wide():
-    return pl.LazyFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
+    return pl.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
 
 
 @deck.figure(title="Value over time")
-def trend(tbl: pl.LazyFrame):
-    df = tbl.select(["date", "value"]).collect()
+def trend(tbl: pl.DataFrame):
+    df = tbl.select(["date", "value"])
     return px.line(df, x="date", y="value", markers=True)
 
 

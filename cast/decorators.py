@@ -19,10 +19,12 @@ def _humanize(name: str) -> str:
 
 def data(fn: Optional[Callable] = None, *, name: Optional[str] = None,
          title: Optional[str] = None):
-    """Register a lazy Polars ``LazyFrame`` factory as a named table.
+    """Register a pandas or Polars dataframe factory as a named table.
 
     The table appears in the editor at decoration time and resolves on first
-    use. Calling the decorated function explicitly refreshes its cached value.
+    use. Pandas frames are converted to a Polars DataFrame internally. Calling
+    the decorated function explicitly refreshes its cached value and still
+    returns the original dataframe type.
     """
 
     def decorate(func: Callable) -> Callable:
@@ -32,9 +34,9 @@ def data(fn: Optional[Callable] = None, *, name: Optional[str] = None,
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            lf = func(*args, **kwargs)
-            registry.update_table(reg_name, reg_title, func, lf)
-            return lf
+            frame = func(*args, **kwargs)
+            registry.update_table(reg_name, reg_title, func, frame)
+            return frame
 
         return wrapper
 
@@ -43,7 +45,7 @@ def data(fn: Optional[Callable] = None, *, name: Optional[str] = None,
 
 def figure(fn: Optional[Callable] = None, *, name: Optional[str] = None,
            title: Optional[str] = None):
-    """Register a figure *factory*: ``fn(table: LazyFrame) -> plotly figure``.
+    """Register a figure *factory*: ``fn(table: DataFrame) -> plotly figure``.
 
     Registration happens at decoration time, so no table is needed in the
     notebook. In the browser the factory can be added to the inventory any

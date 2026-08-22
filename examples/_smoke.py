@@ -3,6 +3,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
@@ -14,17 +15,28 @@ from cast.server import app
 
 @cast.data
 def monthly():
-    return pl.LazyFrame({"date": ["a", "b"], "value": [1, 2]})
+    return pl.DataFrame({"date": ["a", "b"], "value": [1, 2]})
 
 
 @cast.data(title="Wide")
 def wide():
-    return pl.LazyFrame({"x": [1], "y": [2]})
+    return pl.DataFrame({"x": [1], "y": [2]})
+
+
+@cast.data(title="Pandas monthly")
+def pandas_monthly():
+    return pd.DataFrame({"date": ["c", "d"], "value": [3, 4]})
+
+
+@cast.data(title="Eager Polars")
+def eager_polars():
+    return pl.DataFrame({"date": ["e", "f"], "value": [5, 6]})
 
 
 @cast.figure(title="Trend")
-def trend(tbl: pl.LazyFrame):
-    df = tbl.select(["date", "value"]).collect()
+def trend(tbl: pl.DataFrame):
+    assert isinstance(tbl, pl.DataFrame)
+    df = tbl.select(["date", "value"])
     return px.line(df, x="date", y="value")
 
 
@@ -61,7 +73,9 @@ st = client.get("/state").json()
 assert {f["name"] for f in st["figures"]} == {"trend", "standalone"}, st["figures"]
 assert {h["name"] for h in st["htmls"]} == {"note"}, st["htmls"]
 assert {image["name"] for image in st["images"]} == {"raster_pixel", "vector_badge"}, st["images"]
-assert {t["name"] for t in st["tables"]} == {"monthly", "wide"}, st["tables"]
+assert {t["name"] for t in st["tables"]} == {
+    "monthly", "wide", "pandas_monthly", "eager_polars"
+}, st["tables"]
 assert st["slides"] == [], st["slides"]
 assert st["theme"]["accent"], st["theme"]
 assert st["workspace"] == {"configured": False, "filename": None}
@@ -69,13 +83,38 @@ assert client.post("/deck/save").status_code == 409
 
 # Calling a @data function still returns its value and refreshes the live table.
 monthly_version = next(t["version"] for t in st["tables"] if t["name"] == "monthly")
-assert isinstance(monthly(), pl.LazyFrame)
+assert isinstance(monthly(), pl.DataFrame)
 st = client.get("/state").json()
 assert next(t["version"] for t in st["tables"] if t["name"] == "monthly") > monthly_version
+
+# LazyFrame is intentionally outside the @data contract.
+@cast.data(name="unsupported_lazy")
+def unsupported_lazy():
+    return pl.DataFrame({"value": [1]}).lazy()
+
+
+try:
+    unsupported_lazy()
+except TypeError as exc:
+    assert "pandas.DataFrame, or polars.DataFrame" in str(exc)
+else:
+    raise AssertionError("@cast.data accepted a polars.LazyFrame")
 
 # ----- render (live re-run) ----------------------------------------------- #
 ok = client.get("/render", params={"figure": "trend", "table": "monthly"}).json()
 assert ok["ok"] is True and "data" in json.loads(ok["plotly"])
+pandas_ok = client.get(
+    "/render", params={"figure": "trend", "table": "pandas_monthly"}
+).json()
+assert pandas_ok["ok"] is True and "data" in json.loads(pandas_ok["plotly"])
+eager_polars_ok = client.get(
+    "/render", params={"figure": "trend", "table": "eager_polars"}
+).json()
+assert eager_polars_ok["ok"] is True and "data" in json.loads(eager_polars_ok["plotly"])
+# Deferred resolution accepts both dataframe types without an explicit call;
+# direct calls still return the source's original type and refresh the cache.
+assert isinstance(pandas_monthly(), pd.DataFrame)
+assert isinstance(eager_polars(), pl.DataFrame)
 standalone_ok = client.get("/render", params={"figure": "standalone"}).json()
 assert standalone_ok["ok"] is True and "data" in json.loads(standalone_ok["plotly"])
 bad = client.get("/render", params={"figure": "trend", "table": "wide"}).json()
@@ -105,6 +144,16 @@ table_ok = client.get("/render_table", params={"table": "monthly", "limit": 1}).
 assert table_ok["ok"] is True and table_ok["truncated"] is True, table_ok
 assert [column["name"] for column in table_ok["columns"]] == ["date", "value"]
 assert table_ok["rows"] == [["a", "1"]]
+pandas_table_ok = client.get(
+    "/render_table", params={"table": "pandas_monthly", "limit": 1}
+).json()
+assert pandas_table_ok["ok"] is True and pandas_table_ok["truncated"] is True
+assert pandas_table_ok["rows"] == [["c", "3"]]
+eager_polars_table_ok = client.get(
+    "/render_table", params={"table": "eager_polars", "limit": 1}
+).json()
+assert eager_polars_table_ok["ok"] is True and eager_polars_table_ok["truncated"] is True
+assert eager_polars_table_ok["rows"] == [["e", "5"]]
 
 # ----- deck: slides ------------------------------------------------------- #
 sid1 = client.post("/slides").json()["id"]
@@ -285,7 +334,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     @workspace.data(name="instance_data", title="Instance data")
     def instance_data():
-        return pl.LazyFrame({"value": [1]})
+        return pl.DataFrame({"value": [1]})
 
     assert "instance_data" in {
         table["name"] for table in client.get("/state").json()["tables"]
