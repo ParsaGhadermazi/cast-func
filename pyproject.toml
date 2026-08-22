@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "cast-func"
-version = "0.3.0"
+version = "0.3.1"
 description = "Build live notebook-backed presentations from Python functions."
 readme = "README.md"
 license = "MIT"

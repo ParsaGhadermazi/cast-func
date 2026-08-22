@@ -217,7 +217,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
            linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
          background-size:28px 28px; }
 #canvas-viewport { position:relative; flex:0 0 auto; }
-#canvas { position:absolute; inset:0 auto auto 0; width:1040px; height:585px; background:#fff; transform-origin:top left;
+#canvas { position:absolute; inset:0 auto auto 0; width:1040px; height:585px; background:#fff;
           border-radius:8px; box-shadow:0 24px 70px rgba(0,0,0,.56), 0 0 0 1px rgba(255,255,255,.08); overflow:hidden; }
 #canvas.show-grid::after { content:""; position:absolute; inset:0; pointer-events:none; z-index:5;
   background:
@@ -363,6 +363,8 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 #inspector .seg button { background:var(--bg); border:0; border-radius:0; padding:6px 10px; font-size:12px; color:var(--muted); }
 #inspector .seg button.on { background:var(--accent); color:#fff; }
 #inspector .sub { font-size:11px; color:var(--muted); margin:-6px 0 10px; }
+#inspector [data-character-property][data-mixed="true"] { outline:1px dashed var(--muted); outline-offset:2px; }
+#inspector .mixed-value { color:var(--muted); font-size:11px; }
 
 /* present mode */
 #present-overlay { position:fixed; inset:0; background:#000; z-index:var(--present-layer); display:flex;
@@ -370,7 +372,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 #present-overlay[hidden] { display:none; }
 #present-stage { flex:1; width:100%; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
 #present-viewport { position:relative; flex:0 0 auto; }
-#present-canvas { position:absolute; inset:0 auto auto 0; width:1040px; height:585px; background:#fff; transform-origin:top left; }
+#present-canvas { position:absolute; inset:0 auto auto 0; width:1040px; height:585px; background:#fff; }
 #present-hud { position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
                display:flex; gap:10px; align-items:center; background:rgba(20,22,28,.85);
                padding:8px 12px; border-radius:999px; opacity:.72; transition:opacity .2s;
@@ -446,7 +448,7 @@ function refresh() {
       renderCanvas();
       // Don't rebuild the inspector while the user is editing one of its fields.
       const act = document.activeElement;
-      if (!act || !$("inspector").contains(act)) renderInspector();
+      if (!S.editingText && (!act || !$("inspector").contains(act))) renderInspector();
       if (S.present) renderPresent();
     }
   })().finally(()=>{
@@ -464,7 +466,9 @@ function applyTheme() {
       viewport.style.width = (SLIDE_WIDTH * S.zoom) + "px";
       viewport.style.height = (SLIDE_HEIGHT * S.zoom) + "px";
     }
-    cv.style.transform = `scale(${S.zoom})`;
+    // CSS zoom keeps the logical slide size fixed but rasterizes text at its
+    // displayed size. A transformed canvas leaves glyphs visibly soft.
+    cv.style.zoom = S.zoom;
     cv.style.background = S.theme.bg || "#fff";
     cv.style.color = S.theme.fg || "#1a1d24";
     cv.style.fontFamily = S.theme.font || "";
@@ -844,8 +848,13 @@ function attachRichTextHandlers(rich, bid) {
     document.execCommand("insertHTML", false, sanitizeRichHtml(html || plainTextToHtml(text)));
     syncTextContent(bid, rich);
   });
-  rich.addEventListener("blur", ()=>{
-    queueMicrotask(()=>{ if (!suspendTextBlur && S.editingText === bid && document.activeElement !== rich) stopTextEdit(bid); });
+  rich.addEventListener("blur", (event)=>{
+    const next = event.relatedTarget;
+    if (next?.closest?.(".text-selection-control")) return;
+    queueMicrotask(()=>{
+      if (document.activeElement?.closest?.(".text-selection-control")) return;
+      if (!suspendTextBlur && S.editingText === bid && document.activeElement !== rich) stopTextEdit(bid);
+    });
   });
 }
 
@@ -895,7 +904,11 @@ function sanitizeRichHtml(input) {
   const dropped = new Set(["SCRIPT","STYLE","IFRAME","OBJECT","EMBED","FORM","INPUT","BUTTON","SVG","MATH"]);
   const copyChildren = (source, target)=>{
     for (const child of source.childNodes) {
-      if (child.nodeType === Node.TEXT_NODE) { target.append(document.createTextNode(child.textContent || "")); continue; }
+      if (child.nodeType === Node.TEXT_NODE) {
+        const text = (child.textContent || "").replace(/\u200B/g, "");
+        if (text) target.append(document.createTextNode(text));
+        continue;
+      }
       if (child.nodeType !== Node.ELEMENT_NODE) continue;
       let tag = child.tagName.toUpperCase();
       if (dropped.has(tag)) continue;
@@ -917,12 +930,19 @@ function sanitizeRichHtml(input) {
         const weight = child.style.fontWeight.toLowerCase();
         const fontStyle = child.style.fontStyle.toLowerCase();
         const decoration = child.style.textDecorationLine.toLowerCase();
+        const fontFamily = child.style.fontFamily.trim();
+        const fontSize = child.style.fontSize.trim().toLowerCase();
+        const color = child.style.color.trim().toLowerCase();
         if (/^(normal|bold|bolder|lighter|[1-9]00)$/.test(weight)) safe.push(`font-weight:${weight}`);
         if (/^(normal|italic)$/.test(fontStyle)) safe.push(`font-style:${fontStyle}`);
         if (/^(none|underline|line-through|underline line-through|line-through underline)$/.test(decoration)) safe.push(`text-decoration-line:${decoration}`);
+        if (fontFamily && fontFamily.length <= 160 && !/[;{}<>]/.test(fontFamily)) safe.push(`font-family:${fontFamily}`);
+        if (/^(?:[6-9]|[1-9]\d|[12]\d\d|300)px$/.test(fontSize)) safe.push(`font-size:${fontSize}`);
+        if (color && color.length <= 80 && !/[;{}<>]/.test(color)) safe.push(`color:${color}`);
         if (safe.length) clean.setAttribute("style", safe.join(";"));
       }
       copyChildren(child, clean);
+      if (tag === "SPAN" && !clean.hasChildNodes()) continue;
       target.append(clean);
     }
   };
@@ -1068,6 +1088,7 @@ function startTextEdit(bid, event=null) {
   else if (!restoreTextSelection(bid, rich)) placeCaretAtEnd(rich);
   updateEditTextButton();
   updateRichToolbarState();
+  updateCharacterControlState(bid, rich);
   return rich;
 }
 
@@ -1089,6 +1110,7 @@ function stopTextEdit(bid=S.editingText) {
   savedTextBid = null;
   updateEditTextButton();
   updateRichToolbarState();
+  if (rich) updateCharacterControlState(bid, rich);
   return saved;
 }
 
@@ -1409,14 +1431,24 @@ function renderInspector() {
       onmousedown:(event)=>event.preventDefault(),
       onclick:()=>S.editingText === b.id ? stopTextEdit(b.id) : startTextEdit(b.id),
     }, editing ? "Finish editing" : "Edit text"));
-    rows.push(styleRow("Font", fontSelect(st.fontFamily||"", v=>patchStyle(b, {fontFamily:v}))));
-    rows.push(styleRow("Size", numInput(st.fontSize||18, 8, 200, v=>patchStyle(b, {fontSize:v}))));
+    rows.push(styleRow("Font", preserveTextSelectionControl(
+      fontSelect(st.fontFamily||"", v=>applyCharacterStyle(b, "font-family", v)), b.id, "font-family"
+    )));
+    rows.push(styleRow("Size", preserveTextSelectionControl(
+      numInput(st.fontSize||18, 8, 200, v=>applyCharacterStyle(b, "font-size", `${v}px`)), b.id, "font-size"
+    )));
     rows.push(styleRow("Line height", numInput(st.lineHeight||1.45, 0.8, 3, v=>patchStyle(b, {lineHeight:v}), 0.05)));
-    rows.push(styleRow("Color", colorInput(st.color||"#1a1d24", v=>patchStyle(b, {color:v}))));
+    rows.push(styleRow("Color", preserveTextSelectionControl(
+      colorInput(st.color||"#1a1d24", v=>applyCharacterStyle(b, "color", v)), b.id, "color"
+    )));
     rows.push(styleRow("Background", fillControl(st.bg||"transparent", v=>patchStyle(b, {bg:v}))));
     rows.push(styleRow("Align", selectInput(["left","center","right"], st.align||"left", v=>patchStyle(b, {align:v}))));
-    rows.push(styleRow("Weight", selectInput(["normal","600","bold"], st.weight||"normal", v=>patchStyle(b, {weight:v}))));
-    rows.push(styleRow("Italic", toggleInput(!!st.italic, v=>patchStyle(b, {italic:v}))));
+    rows.push(styleRow("Weight", preserveTextSelectionControl(
+      selectInput(["normal","600","bold"], st.weight||"normal", v=>applyCharacterStyle(b, "font-weight", v)), b.id, "font-weight"
+    )));
+    rows.push(styleRow("Italic", preserveTextSelectionControl(
+      toggleInput(!!st.italic, v=>applyCharacterStyle(b, "font-style", v ? "italic" : "normal")), b.id, "font-style"
+    )));
   } else if (b.type === "image") {
     rows.push(el("h3", {}, "Image"));
     rows.push(styleRow("Asset", selectInput(
@@ -1496,6 +1528,12 @@ function renderInspector() {
   rows.push(styleRow("Rotate", rangeInput(st.rotate || 0, -180, 180, 1, v=>patchStyle(b, {rotate:v}))));
   const del = el("button", {class:"danger", onclick: async ()=>{ await api(`./blocks/${b.id}`, {method:"DELETE"}); S.sel=null; refresh(); }}, "Delete block");
   ins.append(...rows, del);
+  if (b.type === "text") {
+    queueMicrotask(()=>{
+      const rich = document.querySelector(`#blk-${b.id} > .body > .rich`);
+      if (rich && S.sel === b.id) updateCharacterControlState(b.id, rich);
+    });
+  }
 }
 function styleRow(label, control) { return el("div", {class:"row"}, [el("label",{}, label), control]); }
 function numInput(val, min, max, on, step) { const i = el("input",{type:"number", min, max, step:step||1, value:val, style:"width:70px"}); i.addEventListener("input", ()=>on(Number(i.value))); return i; }
@@ -1559,6 +1597,21 @@ async function imageSourceAspect(img) {
 }
 function selectInput(opts, val, on, labels) { const s = el("select"); opts.forEach((o,idx)=>{ const op=el("option",{value:o}, labels?labels[idx]:o); if(o===val) op.setAttribute("selected",""); s.append(op);}); s.value=val; s.addEventListener("change", ()=>on(s.value)); return s; }
 function fontSelect(val, on) { return selectInput(FONTS.map(f=>f[1]), val || FONTS[0][1], on, FONTS.map(f=>f[0])); }
+function preserveTextSelectionControl(control, bid, property=null) {
+  control.classList.add("text-selection-control");
+  if (property) control.dataset.characterProperty = property;
+  const hold = ()=>{
+    const rich = document.querySelector(`#blk-${bid} > .body > .rich[contenteditable="true"]`);
+    if (rich) saveTextSelection(bid, rich);
+    suspendTextBlur = true;
+  };
+  const release = ()=>queueMicrotask(()=>{ suspendTextBlur = false; });
+  control.addEventListener("pointerdown", hold);
+  control.addEventListener("mousedown", hold);
+  control.addEventListener("change", release);
+  control.addEventListener("blur", release);
+  return control;
+}
 function shapePicker(val, on) {
   return el("div", {class:"shape-grid"}, SHAPE_OPTIONS.map(([shape, label]) => {
     const b = el("button", {class:shape === val ? "on" : "", type:"button", title:label}, "");
@@ -1689,6 +1742,7 @@ function richCommand(bid, command, value=null) {
   syncTextContent(bid, rich);
   saveTextSelection(bid, rich);
   updateRichToolbarState();
+  updateCharacterControlState(bid, rich);
 }
 function addRichLink(bid) {
   let rich = startTextEdit(bid); if (!rich) return;
@@ -1711,6 +1765,85 @@ function addRichLink(bid) {
   }
   syncTextContent(bid, rich);
   saveTextSelection(bid, rich);
+  updateCharacterControlState(bid, rich);
+}
+function activeTextRange(bid, rich) {
+  const selection = window.getSelection();
+  let range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+  if (range?.collapsed && S.editingText !== bid) range = null;
+  if (!range || !rich.contains(range.commonAncestorContainer)) {
+    range = savedTextBid === bid ? savedTextRange : null;
+  }
+  return range && rich.contains(range.commonAncestorContainer) ? range.cloneRange() : null;
+}
+function wrapTextRange(rich, range, property, value) {
+  if (range.collapsed) {
+    const span = document.createElement("span");
+    span.style.setProperty(property, value);
+    const marker = document.createTextNode("\u200B");
+    span.append(marker);
+    range.insertNode(span);
+    range.setStart(marker, marker.length);
+    range.collapse(true);
+    return range;
+  }
+  const walker = document.createTreeWalker(rich, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.data && range.intersectsNode(node)) nodes.push(node);
+  }
+  const wrapped = new Array(nodes.length);
+  for (let index = nodes.length - 1; index >= 0; index--) {
+    let node = nodes[index];
+    const start = node === range.startContainer ? range.startOffset : 0;
+    const end = node === range.endContainer ? range.endOffset : node.length;
+    if (end <= start) continue;
+    if (end < node.length) node.splitText(end);
+    if (start > 0) node = node.splitText(start);
+    const parent = node.parentElement;
+    if (parent?.tagName === "SPAN" && parent.childNodes.length === 1
+        && node.length === end - start) {
+      parent.style.setProperty(property, value);
+      wrapped[index] = parent;
+      continue;
+    }
+    const span = document.createElement("span");
+    span.style.setProperty(property, value);
+    node.parentNode.insertBefore(span, node);
+    span.append(node);
+    wrapped[index] = span;
+  }
+  const pieces = wrapped.filter(Boolean);
+  if (!pieces.length) return range;
+  const next = document.createRange();
+  next.setStartBefore(pieces[0]);
+  next.setEndAfter(pieces[pieces.length - 1]);
+  return next;
+}
+function applyCharacterStyle(b, property, value) {
+  const bid = b.id;
+  const rich = document.querySelector(`#blk-${bid} > .body > .rich`);
+  if (!rich) return;
+  let range = activeTextRange(bid, rich);
+  if (!range) {
+    range = document.createRange();
+    range.selectNodeContents(rich);
+  }
+  S.editingText = bid;
+  setRichEditingState(rich, true);
+  updateEditTextButton();
+  rich.focus({preventScroll:true});
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  range = wrapTextRange(rich, range, property, value);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  syncTextContent(bid, rich);
+  saveTextSelection(bid, rich);
+  updateRichToolbarState();
+  updateCharacterControlState(bid, rich);
 }
 function normalizeLinkUrl(value) {
   const url = String(value || "").trim();
@@ -1730,6 +1863,116 @@ function updateRichToolbarState() {
     let active = command === "formatBlock" ? blockValue === button.dataset.value : false;
     if (command !== "formatBlock") { try { active = document.queryCommandState(command); } catch (_) {} }
     button.classList.toggle("on", !!active);
+  });
+}
+function characterStyleElement(range, rich) {
+  if (!range) return rich;
+  if (range.collapsed) {
+    const node = range.startContainer;
+    return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement || rich;
+  }
+  const walker = document.createTreeWalker(rich, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    if (walker.currentNode.data && range.intersectsNode(walker.currentNode)) {
+      return walker.currentNode.parentElement || rich;
+    }
+  }
+  return rich;
+}
+function normalizedFont(value) {
+  return String(value || "").replace(/[\"']/g, "").replace(/\s+/g, "").toLowerCase();
+}
+function primaryFont(value) {
+  return normalizedFont(value).split(",", 1)[0];
+}
+function colorToHex(value) {
+  const match = String(value || "").match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!match) return /^#[0-9a-f]{6}$/i.test(value) ? value : null;
+  return "#" + match.slice(1, 4).map(channel=>Number(channel).toString(16).padStart(2, "0")).join("");
+}
+function characterStyles(range, rich) {
+  if (range?.collapsed) return [getComputedStyle(characterStyleElement(range, rich))];
+  const styles = [];
+  const walker = document.createTreeWalker(rich, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (!node.data.replace(/\u200B/g, "")) continue;
+    if (!range || range.intersectsNode(node)) styles.push(getComputedStyle(node.parentElement || rich));
+  }
+  return styles.length ? styles : [getComputedStyle(rich)];
+}
+function styleConsensus(styles, read, normalize=String) {
+  const entries = styles.map(style=>read(style));
+  const unique = new Set(entries.map(value=>normalize(value)));
+  return {mixed:unique.size > 1, value:entries[0]};
+}
+function setSelectState(control, value, label, mixed=false) {
+  control.querySelectorAll("option[data-transient]").forEach(option=>option.remove());
+  if (mixed) {
+    const option = el("option", {value:"__mixed__", "data-transient":"true", disabled:""}, "Mixed");
+    control.prepend(option);
+    control.value = option.value;
+    return;
+  }
+  const existing = [...control.options].find(option=>option.value === value);
+  if (existing) { control.value = existing.value; return; }
+  const option = el("option", {value, "data-transient":"true"}, label || value);
+  control.prepend(option);
+  control.value = option.value;
+}
+function updateCharacterControlState(bid, rich) {
+  if (!rich || S.sel !== bid) return;
+  const range = activeTextRange(bid, rich);
+  const styles = characterStyles(range, rich);
+  document.querySelectorAll("#inspector [data-character-property]").forEach(control=>{
+    const property = control.dataset.characterProperty;
+    let mixed = false;
+    if (property === "font-family") {
+      const summary = styleConsensus(styles, style=>style.fontFamily, primaryFont);
+      mixed = summary.mixed;
+      const current = primaryFont(summary.value);
+      const option = [...control.options].find(item=>primaryFont(item.value) === current);
+      setSelectState(control, option?.value || summary.value, summary.value.split(",", 1)[0].replace(/[\"']/g, ""), mixed);
+    } else if (property === "font-size") {
+      const summary = styleConsensus(styles, style=>Math.round(parseFloat(style.fontSize) || 18), Number);
+      mixed = summary.mixed;
+      control.value = mixed ? "" : String(summary.value);
+      control.placeholder = mixed ? "Mixed" : "";
+    } else if (property === "color") {
+      const summary = styleConsensus(styles, style=>colorToHex(style.color), String);
+      mixed = summary.mixed;
+      const color = summary.value;
+      if (color) control.value = color;
+    } else if (property === "font-weight") {
+      const weightValue = style=>{
+        const numeric = parseInt(style.fontWeight, 10);
+        return numeric >= 700 ? "bold" : numeric >= 600 ? "600" : "normal";
+      };
+      const summary = styleConsensus(styles, weightValue, String);
+      mixed = summary.mixed;
+      setSelectState(control, summary.value, summary.value, mixed);
+    } else if (property === "font-style") {
+      const summary = styleConsensus(styles, style=>style.fontStyle === "italic", String);
+      mixed = summary.mixed;
+      control.indeterminate = mixed;
+      control.checked = !mixed && summary.value;
+    }
+    if (mixed) {
+      control.dataset.mixed = "true";
+      control.title = "Mixed formatting in selection";
+    } else {
+      delete control.dataset.mixed;
+      if (control.title === "Mixed formatting in selection") control.removeAttribute("title");
+    }
+    if (property === "color") {
+      let indicator = control.parentElement?.querySelector(":scope > .mixed-value");
+      if (mixed && !indicator) {
+        indicator = el("span", {class:"mixed-value"}, "Mixed");
+        control.parentElement?.append(indicator);
+      } else if (!mixed) {
+        indicator?.remove();
+      }
+    }
   });
 }
 function debounce(fn, ms) {
@@ -1822,7 +2065,7 @@ function sizePresent() {
   const scale = Math.min(stage.clientWidth / SLIDE_WIDTH, stage.clientHeight / SLIDE_HEIGHT);
   viewport.style.width = (SLIDE_WIDTH * scale) + "px";
   viewport.style.height = (SLIDE_HEIGHT * scale) + "px";
-  cv.style.transform = `scale(${scale})`;
+  cv.style.zoom = scale;
   cv.style.background = S.theme.bg || "#fff"; cv.style.color = S.theme.fg || "#1a1d24"; cv.style.fontFamily = S.theme.font || "";
 }
 function renderPresent() {
@@ -2011,6 +2254,7 @@ document.addEventListener("selectionchange", ()=>{
   if (!rich) return;
   saveTextSelection(bid, rich);
   updateRichToolbarState();
+  updateCharacterControlState(bid, rich);
 });
 
 function connect() {
