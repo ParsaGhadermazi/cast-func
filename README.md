@@ -173,8 +173,10 @@ Once assets are registered, the browser is a free-form canvas:
   arrow keys nudge the selection and the Delete key removes it.
 - The inspector's Arrange controls align a block to the canvas (left/center/right,
   top/middle/bottom), duplicate it, or send it back in the stack.
-- Slides are managed from the rail on the left: add, reorder, delete, or
-  duplicate a slide.
+- Slides are managed from the rail on the left: drag thumbnails to reorder them,
+  or use the controls to add, delete, and duplicate slides. Reordering only
+  changes the existing `slides` array order, so older `.cast.json` files remain
+  compatible.
 - Text boxes use slide-native rich text rather than Markdown. Editing happens on
   the same element used for presentation, so typography, wrapping, and spacing do
   not change between design and present modes; font, size, color, weight,

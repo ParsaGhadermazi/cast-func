@@ -99,7 +99,7 @@ if __name__ == "__main__":
     port = int(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CAST_PORT", "8000"))
     deck.serve(port=port)
     # All decorated assets register at definition time. Data functions resolve
-    # lazily when a table or figure first uses them.
+    # when a table or figure first uses them.
     print(f"Registered. Open http://127.0.0.1:{port}  (Ctrl-C to stop)")
     while True:
         time.sleep(1)

@@ -408,6 +408,8 @@ class Registry:
     def reorder_slides(self, order: List[str]) -> bool:
         with self._lock:
             by_id = {s.id: s for s in self._slides}
+            if len(order) != len(by_id) or len(set(order)) != len(order):
+                return False
             if set(order) != set(by_id):
                 return False
             self._slides = [by_id[sid] for sid in order]

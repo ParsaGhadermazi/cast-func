@@ -165,6 +165,8 @@ assert [s["id"] for s in st["slides"]] == [sid1, sid2], st["slides"]
 assert client.patch("/slides/order", json={"order": [sid2, sid1]}).json()["ok"] is True
 st = client.get("/state").json()
 assert [s["id"] for s in st["slides"]] == [sid2, sid1]
+assert client.patch("/slides/order", json={"order": [sid2, sid2]}).json()["ok"] is False
+assert [s["id"] for s in client.get("/state").json()["slides"]] == [sid2, sid1]
 
 # ----- deck: blocks ------------------------------------------------------- #
 # a figure block bound to a table

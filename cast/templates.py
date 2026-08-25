@@ -178,7 +178,12 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 #rail { width:196px; flex:0 0 auto; border-right:1px solid rgba(255,255,255,.08); background:var(--panel);
         overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
 #rail .thumb { position:relative; border:2px solid transparent; border-radius:7px; background:#fff;
-               aspect-ratio:16/9; cursor:pointer; overflow:hidden; box-shadow:0 8px 22px rgba(0,0,0,.22); }
+               aspect-ratio:16/9; cursor:grab; overflow:hidden; box-shadow:0 8px 22px rgba(0,0,0,.22);
+               transition:opacity .14s, border-color .14s, box-shadow .14s, transform .14s; }
+#rail .thumb:active { cursor:grabbing; }
+#rail .thumb.slide-dragging { opacity:.48; transform:scale(.98); border-color:var(--accent); box-shadow:0 4px 12px rgba(0,0,0,.2); }
+#rail .thumb.slide-drop-before { box-shadow:0 -5px 0 -2px var(--accent), 0 8px 22px rgba(0,0,0,.22); }
+#rail .thumb.slide-drop-after { box-shadow:0 5px 0 -2px var(--accent), 0 8px 22px rgba(0,0,0,.22); }
 #rail .thumb.active { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent), 0 10px 24px rgba(0,0,0,.3); }
 #rail .thumb .mini { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
 #rail .thumb .mini-block { position:absolute; border-radius:1px; color:#1a1d24; overflow:hidden; transform-origin:50% 50%; }
@@ -390,6 +395,7 @@ let refreshPromise = null, refreshQueued = false, renderRequestSeq = 0;
 let savedTextRange = null, savedTextBid = null;
 let suspendTextBlur = false;
 let statusResetTimer = null;
+let draggedSlideId = null, slideOrderBeforeDrag = [], suppressSlideClick = false;
 const pendingTextContent = new Map();
 const textSaveChains = new Map();
 const legacyTextMigrations = new Set();
@@ -626,6 +632,50 @@ function buildMiniBlock(b) {
   return mb;
 }
 
+function railSlideOrder() {
+  return [...$("rail").querySelectorAll(".thumb[data-slide-id]")].map(thumb=>thumb.dataset.slideId);
+}
+
+function updateRailNumbers() {
+  $("rail").querySelectorAll(".thumb[data-slide-id]").forEach((thumb, index)=>{
+    const number = thumb.querySelector(".num");
+    if (number) number.textContent = String(index + 1);
+  });
+}
+
+function clearSlideDropMarkers() {
+  $("rail").querySelectorAll(".slide-drop-before,.slide-drop-after").forEach(thumb=>{
+    thumb.classList.remove("slide-drop-before", "slide-drop-after");
+  });
+}
+
+async function finishSlideReorder(originalOrder) {
+  const order = railSlideOrder();
+  const activeId = curSlide()?.id;
+  S.dragging = false;
+  document.body.style.userSelect = "";
+  clearSlideDropMarkers();
+
+  if (order.join("|") === originalOrder.join("|")) {
+    renderRail();
+    refresh();
+    return;
+  }
+
+  const byId = new Map(S.slides.map(slide=>[slide.id, slide]));
+  S.slides = order.map(id=>byId.get(id)).filter(Boolean);
+  S.cur = Math.max(0, S.slides.findIndex(slide=>slide.id === activeId));
+  renderRail();
+  try {
+    const result = await api("./slides/order", jbody("PATCH", {order}));
+    if (!result.ok) showStatus("Could not reorder slides");
+  } catch (_) {
+    showStatus("Could not reorder slides");
+  } finally {
+    refresh();
+  }
+}
+
 function renderRail() {
   const rail = $("rail");
   rail.innerHTML = "";
@@ -647,10 +697,49 @@ function renderRail() {
     const mini = el("div", {class:"mini"});
     mini.style.background = s.background || S.theme.bg || "#ffffff";
     for (const b of s.blocks) mini.append(buildMiniBlock(b));
-    const thumb = el("div", {class:"thumb"+(i===S.cur?" active":""), onclick:async ()=>{
-      if (S.editingText) await stopTextEdit(S.editingText);
-      S.cur=i; S.sel=null; renderRail(); renderCanvas(); renderInspector();
-    }},
+    const thumb = el("div", {
+      class:"thumb"+(i===S.cur?" active":""),
+      "data-slide-id":s.id,
+      draggable:"true",
+      title:"Drag to reorder slide",
+      ondragstart:(e)=>{
+        if (e.target.closest("button")) { e.preventDefault(); return; }
+        if (S.editingText) void stopTextEdit(S.editingText);
+        draggedSlideId = s.id;
+        slideOrderBeforeDrag = railSlideOrder();
+        suppressSlideClick = true;
+        S.dragging = true;
+        document.body.style.userSelect = "none";
+        thumb.classList.add("slide-dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", s.id);
+      },
+      ondragover:(e)=>{
+        const dragged = [...rail.querySelectorAll(".thumb")].find(item=>item.dataset.slideId === draggedSlideId);
+        if (!dragged || dragged === thumb) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        const rect = thumb.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        clearSlideDropMarkers();
+        thumb.classList.add(after ? "slide-drop-after" : "slide-drop-before");
+        if (after) thumb.after(dragged); else thumb.before(dragged);
+        updateRailNumbers();
+      },
+      ondrop:(e)=>{ e.preventDefault(); clearSlideDropMarkers(); },
+      ondragend:async ()=>{
+        thumb.classList.remove("slide-dragging");
+        draggedSlideId = null;
+        await finishSlideReorder(slideOrderBeforeDrag);
+        setTimeout(()=>{ suppressSlideClick = false; }, 0);
+      },
+      onclick:async ()=>{
+        if (suppressSlideClick) return;
+        if (S.editingText) await stopTextEdit(S.editingText);
+        S.cur=Math.max(0, S.slides.findIndex(slide=>slide.id===s.id));
+        S.sel=null; renderRail(); renderCanvas(); renderInspector();
+      }
+    },
       [mini, el("span", {class:"num"}, String(i+1)), duplicate, del]);
     rail.append(thumb);
   });
