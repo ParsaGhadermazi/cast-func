@@ -98,6 +98,12 @@ def app_js() -> Response:
     return Response(APP_JS, media_type="application/javascript")
 
 
+@app.get("/icons.js")
+def app_icons() -> Response:
+    source = Path(__file__).with_name("static") / "icons.js"
+    return Response(source.read_text(encoding="utf-8"), media_type="application/javascript")
+
+
 @app.get("/state")
 def state() -> JSONResponse:
     payload = registry.get_state()

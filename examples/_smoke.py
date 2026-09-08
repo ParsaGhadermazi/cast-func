@@ -323,6 +323,30 @@ assert [s["id"] for s in st["slides"]] == [sid2]
 assert client.get("/").status_code == 200
 assert client.get("/app.js").status_code == 200
 assert client.get("/app.css").status_code == 200
+icons = client.get("/icons.js")
+assert icons.status_code == 200 and "castIcon" in icons.text
+
+# Older text formats, tied z values, all block types, and per-slide backgrounds.
+from examples._editor_fixture import editor_fixture
+
+legacy = editor_fixture()
+assert client.put("/deck", json=legacy).json()["ok"]
+normalized = client.get("/deck").json()
+assert normalized["schema_version"] == 1
+assert normalized["slides"][1]["background"] == "#eaf4ef"
+assert normalized["slides"][1]["blocks"][0]["markdown"].startswith("## Legacy")
+assert normalized["slides"][2]["blocks"][0]["style"]["textMode"] == "rich"
+assert client.put("/deck", json=normalized).json()["ok"]
+assert client.get("/deck").json() == normalized
+order = [s["id"] for s in normalized["slides"]]
+assert client.patch("/slides/order", json={"order": order + [order[0]]}).json()["ok"] is False
+assert client.patch("/slides/order", json={"order": order[::-1]}).json()["ok"]
+reordered = client.get("/deck").json()
+assert reordered["slides"] == normalized["slides"][::-1]
+with tempfile.TemporaryDirectory() as tmpdir:
+    export_path = Path(tmpdir) / "legacy.html"
+    cast.freeze(str(export_path))
+    assert '"background": "#eaf4ef"' in export_path.read_text(encoding="utf-8")
 
 # ----- file-backed Cast workspace ---------------------------------------- #
 with tempfile.TemporaryDirectory() as tmpdir:

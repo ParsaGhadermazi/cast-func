@@ -80,7 +80,7 @@ def freeze(path: str) -> str:
                     nb["imageData"] = None
                     nb["error"] = res.error or "Unable to render image."
             blocks.append(nb)
-        baked_slides.append({"id": s.get("id"), "blocks": blocks})
+        baked_slides.append({"id": s.get("id"), "background": s.get("background"), "blocks": blocks})
 
     deck = {"theme": theme, "slides": baked_slides}
     html = _render_html(deck)
@@ -177,6 +177,9 @@ _TEMPLATE = r"""<!doctype html>
   .md ul ul ul, .rich ul ul ul {{ list-style:square; }}
   .md ol, .rich ol {{ margin:.4em 0; padding-left:1.5em; }}
   .md li, .rich li {{ margin:.15em 0; }}
+  .rich li::marker {{ font-family:var(--marker-font-family, inherit); font-size:var(--marker-font-size, 1em);
+                      font-weight:var(--marker-font-weight, inherit); font-style:var(--marker-font-style, inherit);
+                      color:var(--marker-color, currentColor); }}
   .md a, .rich a {{ color:var(--accent); }}
   .md strong, .rich b, .rich strong {{ font-weight:700; }}
   .md em, .rich i, .rich em {{ font-style:italic; }}
@@ -313,6 +316,7 @@ function render() {{
   const slides = DECK.slides || [];
   $("count").textContent = (slides.length ? (cur + 1) : 0) + " / " + slides.length;
   const slide = slides[cur];
+  cv.style.background = (slide && slide.background) || DECK.theme.bg || "#ffffff";
   if (!slide) {{ cv.append(Object.assign(document.createElement("div"), {{id:"empty", textContent:"Empty presentation."}})); return; }}
   for (const b of slide.blocks) {{
     const wrap = document.createElement("div");

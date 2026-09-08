@@ -8,9 +8,9 @@ Build live, notebook-backed presentations from Python functions.
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![Built with](https://img.shields.io/badge/built%20with-FastAPI%20%C2%B7%20Polars%20%C2%B7%20Plotly-5b8cff)
 
-![The cast editor: a toolbar of blocks, a slide canvas with a figure, table, image, and text, and an inspector panel.](https://raw.githubusercontent.com/ParsaGhadermazi/cast-func/main/docs/editor.png)
+![The cast editor with a live figure, rich text, slide thumbnails, and the Layers panel.](https://raw.githubusercontent.com/ParsaGhadermazi/cast-func/main/docs/editor.png)
 
-*The cast editor — a Plotly figure, a scrollable data table, a vector image, and rich text arranged on the canvas, with the selected block's controls in the inspector. Every asset comes from a decorated notebook function.*
+*The cast editor: a compact toolbar, live Plotly figure, rich text, scrollable slide previews, and selectable object layers. Decorated notebook functions supply the live assets.*
 
 **Project note:** This repo is vibe coded, and the frontend in particular — the
 in-browser canvas editor and everything it renders — was built by iteration
@@ -167,6 +167,13 @@ corner radius, and opacity.
 
 Once assets are registered, the browser is a free-form canvas:
 
+- A compact toolbar keeps **Open**, **Save**, **Download editable copy**, and
+  **Present** visible. **Insert** groups registered figures, tables, HTML, and
+  images with their add buttons. Choosing an insertion source does not change
+  the selected object; existing bindings are edited in **Properties**.
+- The **Layers** tab lists every object, including covered ones, with controls
+  to bring forward, send backward, move to either end of the stack, or duplicate.
+  Moving an object preserves its stacking order.
 - Figures, tables, HTML, images, text, and shapes (rectangle, ellipse, triangle,
   line) can be placed anywhere on a 16:9 canvas.
 - Blocks can be dragged, resized from any corner, rotated, and stacked in z-order;
@@ -176,7 +183,13 @@ Once assets are registered, the browser is a free-form canvas:
 - Slides are managed from the rail on the left: drag thumbnails to reorder them,
   or use the controls to add, delete, and duplicate slides. Reordering only
   changes the existing `slides` array order, so older `.cast.json` files remain
-  compatible.
+  compatible. Escape cancels a drag without changing the saved order. The slide
+  number field jumps directly to a slide; Page Up/Down navigates the deck.
+- Cmd/Ctrl+D duplicates the selected object, or the current slide when nothing
+  is selected. Native text editing and its clipboard shortcuts remain separate.
+- The slide rail and properties panel can be collapsed for more canvas space.
+  **Fit** follows available space; manual zoom stays fixed until Fit is selected
+  again. Both use the same logical canvas dimensions as presentation mode.
 - Text boxes use slide-native rich text rather than Markdown. Editing happens on
   the same element used for presentation, so typography, wrapping, and spacing do
   not change between design and present modes; font, size, color, weight,
@@ -218,6 +231,12 @@ define those assets before reopening the deck. The editor's **Open** action can
 load another JSON document into the current workspace; press **Save** to commit
 it to the file originally passed to `Cast`.
 
+**Download editable copy** writes a browser download without changing the active
+workspace. This also works without a configured workspace file. All editor
+improvements use the existing version-1 document format: old Markdown text is
+still converted on opening, and rich text, asset references, IDs, and geometry
+remain supported. No manual file migration is required.
+
 `freeze` produces the shareable output: figures are pre-rendered to Plotly JSON,
 images are embedded, and tables, text, and shapes are inlined into a single HTML
 file with client-side slide navigation and still-interactive charts. It needs no
@@ -245,6 +264,14 @@ table, add it again with `daily`, try the deliberately incompatible `wide` table
 to see the inline error, and add the HTML callout and the vector workflow image.
 The full source is in [`examples/demo.py`](examples/demo.py).
 
+For regression checks, run `PYTHONPATH=. python examples/_smoke.py`. The isolated
+browser fixture is `PYTHONPATH=. python examples/_editor_fixture.py 8071`; it uses
+a temporary workspace and never opens your presentation files. With Playwright
+CLI installed, open that URL and run
+`playwright-cli run-code --filename=examples/_editor_checks.js`. Recreate the
+fixture before each run. The checks cover legacy files, text formatting, layer
+ordering, native slide dragging, file round-trips, and narrow-screen layouts.
+
 ## API reference
 
 | Call | Description |
@@ -262,11 +289,25 @@ The full source is in [`examples/demo.py`](examples/demo.py).
 ## Notes and limitations
 
 - The frontend is vibe coded and still settling; some interactions are rough.
+- Controls inside HTML iframes can miss clicks in Chromium when the slide is
+  zoomed away from 100%, including fitted presentation mode. The same widget
+  interaction passed in WebKit. This remains an interaction issue; HTML asset
+  references and saved presentation files are unchanged.
 - The page is built at import time. If you edit `cast/templates.py`, restart the
   kernel or process to see the change — a browser refresh alone will not reload it.
 - `save` and `load` store references to decorated assets, not the Python behind
   them. Rerun the notebook cells that define the assets before calling `load`.
 
 ## License
+
+The editor includes a small, locally bundled subset of Lucide 0.468.0 icons;
+its upstream notice is in `cast/static/LUCIDE-LICENSE`. No icon CDN is required.
+To rebuild after changing `cast/static/icons-entry.js`, install `lucide@0.468.0`
+and `esbuild@0.24.2` in a temporary directory, set `NODE_PATH` to that directory's
+`node_modules`, and run this from the repository:
+
+```sh
+esbuild cast/static/icons-entry.js --bundle --minify --outfile=cast/static/icons.js --legal-comments=inline
+```
 
 MIT. See [LICENSE](LICENSE).
