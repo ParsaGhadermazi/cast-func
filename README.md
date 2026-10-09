@@ -299,6 +299,8 @@ npm test
 npm run build
 ```
 
+`npm run test:e2e` drives the built editor in Chromium against the fixture
+deck (install the browser once with `npx playwright install chromium`).
 `npm run build` type-checks and writes `cast/static/editor/` and
 `cast/static/viewer/`; commit those files with your change (CI checks that they
 match the source). For live reloading while working on the editor, start a

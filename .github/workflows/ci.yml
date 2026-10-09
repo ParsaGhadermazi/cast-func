@@ -36,3 +36,11 @@ jobs:
       - name: Committed bundle matches the source
         working-directory: .
         run: git diff --exit-code -- cast/static || (echo "Run 'npm run build' in frontend/ and commit cast/static." && exit 1)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: End-to-end tests
+        run: |
+          pip install -e ..
+          npx playwright install --with-deps chromium
+          npm run test:e2e

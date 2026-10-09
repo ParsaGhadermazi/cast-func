@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:viewer": "rm -rf ../cast/static/viewer && vite build -c vite.viewer.config.ts && VIEWER_PLOTLY=global vite build -c vite.viewer.config.ts"
+    "build:viewer": "rm -rf ../cast/static/viewer && vite build -c vite.viewer.config.ts && VIEWER_PLOTLY=global vite build -c vite.viewer.config.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "immer": "11.1.18",
@@ -22,6 +23,7 @@
     "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/node": "22.18.0",
     "@types/plotly.js-dist-min": "2.3.4",
     "@types/react": "19.1.9",
