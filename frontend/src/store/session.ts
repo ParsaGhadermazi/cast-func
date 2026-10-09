@@ -127,6 +127,14 @@ export async function startSession(): Promise<Session> {
 
   const ui = createUiStore();
   ui.getState().goToSlide(initial.deck.slides, 0);
+  // Keep the selection valid when blocks disappear (delete, undo, another tab).
+  doc.subscribe((state, previous) => {
+    if (state.doc === previous.doc) return;
+    const { currentSlideId, selection } = ui.getState();
+    if (!selection.length) return;
+    const slide = state.doc.slides.find((candidate) => candidate.id === currentSlideId);
+    ui.getState().pruneSelection(new Set(slide?.blocks.map((block) => block.id) ?? []));
+  });
 
   return {
     doc,

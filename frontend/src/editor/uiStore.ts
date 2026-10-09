@@ -8,6 +8,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 
 import { clamp } from "../model/geometry";
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from "../model/types";
+import type { Box, Guides, Rect } from "./transform";
 
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 1.6;
@@ -23,6 +24,18 @@ export interface UiState {
   present: { slideId: string | null; indexHint: number } | null;
   railOpen: boolean;
   sidebarOpen: boolean;
+  /** Selected block ids on the current slide; `primary` is the last one clicked. */
+  selection: string[];
+  primary: string | null;
+  /** Snap to the slide and other objects while dragging (hold Cmd/Ctrl to bypass). */
+  snap: boolean;
+  /** Transient overlay state while a gesture runs. */
+  guides: Guides | null;
+  marquee: Rect | null;
+  /** Frame to draw instead of the computed one (a group mid-rotation). */
+  gestureFrame: Box | null;
+  activeGesture: "move" | "resize" | "rotate" | "marquee" | null;
+  sidebarTab: "properties" | "layers";
 
   goToSlide(slides: Slide[], index: number): void;
   setZoom(zoom: number): void;
@@ -33,6 +46,13 @@ export interface UiState {
   presentGo(slides: Slide[], index: number): void;
   stopPresent(): void;
   togglePanel(panel: "rail" | "sidebar"): void;
+  select(ids: string[], primary?: string | null): void;
+  toggleSelected(id: string): void;
+  clearSelection(): void;
+  /** Drop selected ids that are no longer on the slide. */
+  pruneSelection(present: Set<string>): void;
+  toggleSnap(): void;
+  setSidebarTab(tab: UiState["sidebarTab"]): void;
 }
 
 export type UiStore = StoreApi<UiState>;
@@ -61,11 +81,21 @@ export function createUiStore(): UiStore {
     present: null,
     railOpen: true,
     sidebarOpen: true,
+    selection: [],
+    primary: null,
+    snap: true,
+    guides: null,
+    marquee: null,
+    gestureFrame: null,
+    activeGesture: null,
+    sidebarTab: "properties",
 
     goToSlide(slides, index) {
-      if (!slides.length) return set({ currentSlideId: null, currentIndexHint: 0 });
+      if (!slides.length) return set({ currentSlideId: null, currentIndexHint: 0, selection: [], primary: null });
       const target = clamp(index, 0, slides.length - 1);
-      set({ currentSlideId: slides[target]!.id, currentIndexHint: target });
+      const id = slides[target]!.id;
+      if (id === get().currentSlideId) return set({ currentIndexHint: target });
+      set({ currentSlideId: id, currentIndexHint: target, selection: [], primary: null });
     },
     setZoom(zoom) {
       set({ zoom: clamp(Math.round(zoom * 100) / 100, MIN_ZOOM, MAX_ZOOM), fit: false });
@@ -94,6 +124,33 @@ export function createUiStore(): UiStore {
       const present = get().present;
       if (present?.slideId) set({ present: null, currentSlideId: present.slideId, currentIndexHint: present.indexHint });
       else set({ present: null });
+    },
+    select(ids, primary) {
+      const unique = [...new Set(ids)];
+      set({ selection: unique, primary: primary === undefined ? unique.at(-1) ?? null : primary });
+    },
+    toggleSelected(id) {
+      const { selection } = get();
+      if (selection.includes(id)) {
+        const rest = selection.filter((value) => value !== id);
+        set({ selection: rest, primary: rest.at(-1) ?? null });
+      } else set({ selection: [...selection, id], primary: id });
+    },
+    clearSelection() {
+      if (get().selection.length) set({ selection: [], primary: null });
+    },
+    pruneSelection(present) {
+      const { selection, primary } = get();
+      const kept = selection.filter((id) => present.has(id));
+      if (kept.length !== selection.length) {
+        set({ selection: kept, primary: primary && present.has(primary) ? primary : kept.at(-1) ?? null });
+      }
+    },
+    toggleSnap() {
+      set({ snap: !get().snap });
+    },
+    setSidebarTab(tab) {
+      set({ sidebarTab: tab });
     },
     togglePanel(panel) {
       if (panel === "rail") set({ railOpen: !get().railOpen });

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Grid3x3, Minus, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Grid3x3, Magnet, Minus, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useSession, useUi } from "../app/SessionContext";
@@ -9,6 +9,7 @@ export function Viewbar() {
   const zoom = useUi((state) => state.zoom);
   const fit = useUi((state) => state.fit);
   const grid = useUi((state) => state.grid);
+  const snap = useUi((state) => state.snap);
   const { index, count } = useCurrentSlide();
   const nav = useSlideNavigation();
   const [draft, setDraft] = useState<string | null>(null);
@@ -44,6 +45,10 @@ export function Viewbar() {
       </div>
       <span className="spacer" />
       <div className="group">
+        <button type="button" className={`icon toggle${snap ? " on" : ""}`} aria-label="Snap to objects"
+          title="Snap to the slide and other objects (hold Cmd/Ctrl while dragging to place freely)" aria-pressed={snap} onClick={ui.toggleSnap}>
+          <Magnet size={16} />
+        </button>
         <button type="button" className={`icon toggle${grid ? " on" : ""}`} aria-label="Grid" aria-pressed={grid} onClick={ui.toggleGrid}>
           <Grid3x3 size={16} />
         </button>

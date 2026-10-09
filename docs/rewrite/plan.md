@@ -162,6 +162,43 @@ M3 and M4 come right after the foundation because they are the priorities. M1 re
   - Found and fixed: a cache-busting `?v=` on the entry script made the lazily loaded Plotly chunk import a second copy of the app. Static files are now served with `Cache-Control: no-cache` and plain URLs.
   - Tests: 51 Vitest tests.
 
+- **M3 done.**
+  - The selection model lives in `editor/uiStore.ts`; pointer gestures in `editor/interaction.ts`; the screen-space overlay in `editor/SelectionLayer.tsx`.
+  - Transform maths is pure and tested in `editor/transform.ts`:
+    - Resize in a rotated frame, with an aspect lock that follows the dominant axis and resize-from-centre.
+    - Group scaling, which goes uniform when a member is rotated obliquely.
+    - Rigid group rotation and 15° snapping.
+    - Clamping so stored rectangles stay on the slide.
+    - Snapping to slide and object edges and centres, with guides. On by default; hold Cmd/Ctrl to bypass; toggle in the viewbar.
+  - Commands are pure Immer recipes in `editor/operations.ts`, each one undo step:
+    - Delete, duplicate, insert/paste (offset only when landing exactly on existing blocks).
+    - Layer moves (z renormalised to 0..n-1).
+    - Align to the slide or to the selection, distribute, nudge.
+    - Clipboard parsing, compatible with the legacy format and sanitised.
+  - Interactions:
+    - Click, Shift/Cmd toggle, marquee.
+    - Alt+click cycles through stacked objects; Alt+drag duplicates.
+    - Shift-drag locks the axis.
+    - Escape cancels a gesture.
+    - Tab steps through objects.
+    - Arrow nudges (1 px, 10 px with Shift; a burst is one undo step).
+    - Cmd+A/D/C/X/V. Pasted plain text becomes a text box and pasted images become image blocks.
+  - Sidebar:
+    - Properties: Arrange, align, distribute, layer order, duplicate, delete, and X/Y/W/H/rotation in slide pixels.
+    - Layers: a top-first list with selection and drag-to-restack.
+  - Verified in the browser with scripted pointer events:
+    - Selection on charts.
+    - Single-step drag with undo.
+    - Escape cancel.
+    - Snap guides.
+    - Shift aspect lock and rotation.
+    - Marquee.
+    - Alt cycle and Alt-duplicate.
+    - Group resize.
+    - Layer and align buttons.
+    - Copy/paste across slides.
+  - Tests: 79 Vitest tests. A Playwright suite waits for M7 (it needs a Chromium download).
+
 ## Decisions (confirmed)
 
 1. **The built bundle is committed**, so installing from git works without Node.
