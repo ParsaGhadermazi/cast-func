@@ -6,7 +6,8 @@ DataFrame. Decorate a function that takes one table and returns a Plotly figure
 with ``@cast.figure`` to register a visualizer. Decorate a function that returns
 an HTML string with ``@cast.html`` to register custom HTML content, or an image
 source with ``@cast.image`` to register original raster or vector artwork.
-Start the live page with ``cast.serve()``.
+Start the live editor with ``cast.serve()`` and export a portable copy with
+``cast.freeze("talk.html")``.
 """
 
 from .decorators import data, figure, html, image
@@ -16,4 +17,4 @@ from .persistence import load, save
 from .presentation import Cast
 
 __all__ = ["Cast", "data", "figure", "html", "image", "serve", "freeze", "save", "load"]
-__version__ = "0.3.0"
+__version__ = "0.4.0"

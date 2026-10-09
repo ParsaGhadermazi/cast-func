@@ -53,5 +53,6 @@ class Cast:
     def serve(self, port: int = 8000, host: str = "127.0.0.1", open: bool = False):
         return serve(port=port, host=host, open=open)
 
-    def freeze(self, path: Pathish) -> str:
-        return freeze(path)
+    def freeze(self, path: Pathish, *, offline: bool = True) -> str:
+        """Export a self-contained HTML file (Plotly inlined unless ``offline=False``)."""
+        return freeze(path, offline=offline)

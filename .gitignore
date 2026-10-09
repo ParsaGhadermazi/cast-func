@@ -221,3 +221,10 @@ __marimo__/
 .DS_Store
 .claude/
 .playwright-cli/
+
+# Editor frontend
+frontend/node_modules/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/

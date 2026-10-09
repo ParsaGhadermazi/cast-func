@@ -8,14 +8,14 @@ Build live, notebook-backed presentations from Python functions.
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![Built with](https://img.shields.io/badge/built%20with-FastAPI%20%C2%B7%20Polars%20%C2%B7%20Plotly-5b8cff)
 
-![The cast editor with a live figure, rich text, slide thumbnails, and the Layers panel.](https://raw.githubusercontent.com/ParsaGhadermazi/cast-func/main/docs/editor.png)
+![The cast editor with a live figure selected, rich text, slide thumbnails, and the inspector.](https://raw.githubusercontent.com/ParsaGhadermazi/cast-func/main/docs/editor.png)
 
-*The cast editor: a compact toolbar, live Plotly figure, rich text, scrollable slide previews, and selectable object layers. Decorated notebook functions supply the live assets.*
+*The cast editor: slide thumbnails, a live Plotly figure selected with its inspector, and a compact toolbar. Decorated notebook functions supply the live assets.*
 
-**Project note:** This repo is vibe coded, and the frontend in particular — the
-in-browser canvas editor and everything it renders — was built by iteration
-rather than by a dedicated frontend engineer. It is experimental and
-fast-moving, so expect rough edges alongside the parts that work well.
+**Project note:** This project is experimental. The browser editor was rewritten
+in TypeScript (`frontend/`) around a single document model, so editing happens
+instantly in the browser and syncs to Python in the background. Expect the
+occasional rough edge, and please report it.
 
 ## What it does
 
@@ -165,82 +165,99 @@ corner radius, and opacity.
 
 ## Composing the deck
 
-Once assets are registered, the browser is a free-form canvas:
+Once assets are registered, the browser is a free-form 16:9 canvas. Edits apply
+instantly and sync to Python in the background; the status next to the file
+name says whether everything is synced.
 
-- A compact toolbar keeps **Open**, **Save**, **Download editable copy**, and
-  **Present** visible. **Insert** groups registered figures, tables, HTML, and
-  images with their add buttons. Choosing an insertion source does not change
-  the selected object; existing bindings are edited in **Properties**.
-- The **Layers** tab lists every object, including covered ones, with controls
-  to bring forward, send backward, move to either end of the stack, or duplicate.
-  Moving an object preserves its stacking order.
-- Figures, tables, HTML, images, text, and shapes (rectangle, ellipse, triangle,
-  line) can be placed anywhere on a 16:9 canvas.
-- Blocks can be dragged, resized from any corner, rotated, and stacked in z-order;
-  arrow keys nudge the selection and the Delete key removes it.
-- The inspector's Arrange controls align a block to the canvas (left/center/right,
-  top/middle/bottom), duplicate it, or send it back in the stack.
-- Slides are managed from the rail on the left: drag thumbnails to reorder them,
-  or use the controls to add, delete, and duplicate slides. Reordering only
-  changes the existing `slides` array order, so older `.cast.json` files remain
-  compatible. Escape cancels a drag without changing the saved order. The slide
-  number field jumps directly to a slide; Page Up/Down navigates the deck.
-- Cmd/Ctrl+D duplicates the selected object, or the current slide when nothing
-  is selected. Native text editing and its clipboard shortcuts remain separate.
-- The slide rail and properties panel can be collapsed for more canvas space.
-  **Fit** follows available space; manual zoom stays fixed until Fit is selected
-  again. Both use the same logical canvas dimensions as presentation mode.
-- Text boxes use slide-native rich text rather than Markdown. Editing happens on
-  the same element used for presentation, so typography, wrapping, and spacing do
-  not change between design and present modes; font, size, color, weight,
-  alignment, and line height are set in the inspector, and double-clicking a text
-  block edits it in place. The text style menu also includes a polished code
-  treatment with monospace defaults, code-safe whitespace, and an editor-like
-  frame that is preserved in present mode and frozen exports.
-- A theme sets accent, background, foreground, and font once for the whole deck.
-- Edits stream over Server-Sent Events, so multiple tabs and changing data stay
-  in sync.
-- Present mode is full-screen with arrow-key navigation, and figures remain
-  interactive.
+**Adding things.** The toolbar has the Select (V), Text (T) and Shape tools and
+an **Insert** menu with every decorated figure, table, HTML object and image.
+With the Text or Shape tool, click to place an object or drag to size it
+(Shift keeps proportions or 45° lines). Image files can also be uploaded, dropped
+onto the slide, or pasted; they keep their own aspect ratio. Pasted plain text
+becomes a text box.
 
-The editor is served by the small FastAPI application that `deck.serve()` starts
-in a background thread. `serve()` is idempotent, so calling it more than once
-does not start a second server.
+**Selecting.** Click picks the topmost object; charts, tables and HTML widgets
+never swallow the click. Shift- or Cmd/Ctrl-click adds or removes objects, a
+drag on empty space selects with a box, Alt-click cycles through objects
+stacked under the pointer, and Tab steps through objects. Lines and shapes are
+hit on their actual outline, so the empty corners of a diagonal arrow never
+cover what is underneath. Selecting never changes the stacking order.
+
+**Moving and sizing.** Drag to move, the handles to resize, the round handle to
+rotate. While dragging, objects snap to the slide's edges and centre and to
+other objects, with guides (hold Cmd/Ctrl to place freely, or turn snapping off
+with the magnet button). Shift locks the axis, keeps proportions, or snaps
+rotation to 15°; Alt resizes from the centre or drags out a copy. Arrow keys
+nudge by 1 px (10 px with Shift). Groups move, resize and rotate together.
+Every drag is a single undo step, and Escape during a drag puts things back.
+
+**Editing in place.** Double-click (or press Enter):
+
+- a text box to type into it, with a floating format bar (bold, italic,
+  underline, strikethrough, size, colour, headings, lists, quote, code, link).
+  Styling applies to the selected characters, or to the whole box when nothing
+  is selected. Boxes grow to fit, Tab indents list items, and an editing
+  session is one undo step;
+- a shape to edit its points: drag a point (even outside the box), drag a ◇ to
+  add one, Delete removes the selected point. Lines and arrows always show
+  their two ends as handles;
+- an image to crop it like a mask: drag an edge and the picture stays put.
+
+**Inspector and layers.** Properties shows controls for the selection (shape
+fill, stroke, dash, arrowheads, corners, shadow and opacity; text font, size,
+colour, alignment and spacing; image fit, crop, rendering and alt text; table
+rows and colours; figure and data bindings), plus align, distribute, layer order
+and exact position and size. With nothing selected it shows the slide
+background and the presentation theme (presets, accent, colours, font). Layers
+lists every object, top first; drag to restack.
+
+**Slides.** The rail on the left shows live thumbnails. Drag to reorder, use
+the buttons to duplicate or delete, or **New slide** with an optional template
+(title, text + figure, split, quote). Alt+↑/↓ moves the current slide and
+Cmd/Ctrl+D with nothing selected duplicates it.
+
+**Undo, keyboard, menus.** Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z undo and redo
+everything, including opening a file and deleting slides. Right-click for a
+context menu, and press `?` for every shortcut.
+
+**Present.** Present goes full screen with keyboard navigation; figures and
+HTML widgets are interactive. Leaving lands the editor on the last slide shown.
+
+When a decorated data function runs again in the notebook, every slide that
+uses it updates in place, without reloading the page. Several browser tabs stay
+in sync; if two tabs edit at once, the later change wins and the other tab is
+told.
 
 ## Save, reopen, and export
 
 ```python
-deck = cast.Cast("talk.cast.json")    # load it, or create an empty workspace
-deck.save()                           # atomically update talk.cast.json
-deck.save(as_="talk-copy.cast.json") # write a copy; talk.cast.json stays active
-deck.load()                           # reload the active workspace from disk
-deck.freeze("talk.html")              # self-contained HTML, no server required
+deck = cast.Cast("talk.cast.json")      # load it, or create an empty workspace
+deck.save()                             # atomically update talk.cast.json
+deck.save(as_="talk-copy.cast.json")    # write a copy; talk.cast.json stays active
+deck.load()                             # reload the active workspace from disk
+deck.freeze("talk.html")                # self-contained HTML that works offline
+deck.freeze("talk.html", offline=False) # smaller file; loads Plotly from a CDN
 ```
 
 `Cast(path)` makes that JSON file the workspace source of truth. If the path
-already exists it is validated and loaded; if it does not exist, cast creates a
-new empty presentation there immediately. The editor's **Save** button performs
-the same atomic update as `deck.save()`, so saving does not depend on a browser
-download. Python reserves the word `as`, so Save As is spelled `as_`.
+exists it is validated and loaded; otherwise cast creates an empty
+presentation there. The editor's **Save** button (Cmd/Ctrl+S) performs the same
+atomic write as `deck.save()`. Python reserves the word `as`, so Save As is
+spelled `as_`.
 
-`save` and `load` round-trip an editable deck as human-readable JSON. The
-document preserves slide order, text, geometry, styles, rotations, theme,
-manually uploaded images, and references to decorated assets. It deliberately
-does not serialize Python functions or data frames; rerun the notebook cells that
-define those assets before reopening the deck. The editor's **Open** action can
-load another JSON document into the current workspace; press **Save** to commit
-it to the file originally passed to `Cast`.
+The `.cast.json` document is human-readable JSON with the slide order, text,
+geometry, styles, theme, uploaded images, and references to decorated assets.
+It does not contain Python functions or data; rerun the notebook cells that
+define the assets before reopening a deck. In the editor, **Open** loads
+another document (undoably) and **Download** saves an editable copy. Documents
+from older versions open unchanged, including old Markdown text.
 
-**Download editable copy** writes a browser download without changing the active
-workspace. This also works without a configured workspace file. All editor
-improvements use the existing version-1 document format: old Markdown text is
-still converted on opening, and rich text, asset references, IDs, and geometry
-remain supported. No manual file migration is required.
-
-`freeze` produces the shareable output: figures are pre-rendered to Plotly JSON,
-images are embedded, and tables, text, and shapes are inlined into a single HTML
-file with client-side slide navigation and still-interactive charts. It needs no
-running server.
+`freeze` renders every figure, table, HTML object and image in Python, embeds
+them with the document, and inlines the same slide renderer the editor uses. The
+result is one HTML file that needs no server: arrow keys, Space, swipe, `#3`
+links to slide 3, and F for full screen. By default Plotly is inlined (about
+5 MB) so the file also works offline. Text is sanitised when a deck is opened,
+in the editor and in exported files alike.
 
 ## How it fits together
 
@@ -264,50 +281,63 @@ table, add it again with `daily`, try the deliberately incompatible `wide` table
 to see the inline error, and add the HTML callout and the vector workflow image.
 The full source is in [`examples/demo.py`](examples/demo.py).
 
-For regression checks, run `PYTHONPATH=. python examples/_smoke.py`. The isolated
-browser fixture is `PYTHONPATH=. python examples/_editor_fixture.py 8071`; it uses
-a temporary workspace and never opens your presentation files. With Playwright
-CLI installed, open that URL and run
-`playwright-cli run-code --filename=examples/_editor_checks.js`. Recreate the
-fixture before each run. The checks cover legacy files, text formatting, layer
-ordering, native slide dragging, file round-trips, and narrow-screen layouts.
+## Development
+
+The Python package lives in `cast/`; the browser editor and the export viewer
+live in `frontend/` (TypeScript, React, Vite). The built editor is committed in
+`cast/static/`, so installing the package never needs Node.
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+```bash
+cd frontend
+npm install
+npm test
+npm run build
+```
+
+`npm run test:e2e` drives the built editor in Chromium against the fixture
+deck (install the browser once with `npx playwright install chromium`).
+`npm run build` type-checks and writes `cast/static/editor/` and
+`cast/static/viewer/`; commit those files with your change (CI checks that they
+match the source). For live reloading while working on the editor, start a
+Python server (for example `python examples/demo.py`) and run `npm run dev`,
+which proxies API calls to it. `python examples/_editor_fixture.py 8071` serves
+an isolated deck with every block type for manual testing. The design notes are
+in [`docs/rewrite/`](docs/rewrite/).
 
 ## API reference
 
 | Call | Description |
 | --- | --- |
 | `cast.Cast(path)` | Open an existing `.cast.json` workspace or create a new one. |
-| `deck.serve(port=8000, host="127.0.0.1", open=False)` | Start the editor in a background thread and return the URL; `open=True` embeds an IFrame in a notebook. Idempotent. |
+| `deck.serve(port=8000, host="127.0.0.1", open=False)` | Start the editor in a background thread and return the URL; `open=True` embeds an IFrame in a notebook. Idempotent; raises `OSError` if the port is taken. |
 | `@deck.data` / `@deck.data(name=, title=)` | Register a pandas or Polars dataframe-returning function as a data source. |
 | `@deck.figure` / `@deck.figure(name=, title=)` | Register a `table -> Plotly figure` factory. |
 | `@deck.html` / `@deck.html(name=, title=)` | Register an HTML-returning factory for iframe blocks. |
 | `@deck.image` / `@deck.image(name=, title=, alt=)` | Register an original-quality image asset. |
 | `deck.save()` / `deck.save(as_=path)` | Update the active workspace or atomically write a separate copy. |
 | `deck.load()` | Reload the active workspace (registered assets remain available). |
-| `deck.freeze(path)` | Export a self-contained, portable HTML file. |
+| `deck.freeze(path, offline=True)` | Export a self-contained HTML file; `offline=False` loads Plotly from a CDN. |
 
 ## Notes and limitations
 
-- The frontend is vibe coded and still settling; some interactions are rough.
-- Controls inside HTML iframes can miss clicks in Chromium when the slide is
-  zoomed away from 100%, including fitted presentation mode. The same widget
-  interaction passed in WebKit. This remains an interaction issue; HTML asset
-  references and saved presentation files are unchanged.
-- The page is built at import time. If you edit `cast/templates.py`, restart the
-  kernel or process to see the change — a browser refresh alone will not reload it.
+- One workspace is active per Python process; constructing another `Cast`
+  switches the editor to that file while keeping the registered assets.
 - `save` and `load` store references to decorated assets, not the Python behind
   them. Rerun the notebook cells that define the assets before calling `load`.
+- Web fonts (Inter, Poppins, Playfair Display, Roboto Mono) load from Google
+  Fonts; without internet the system font is used.
+- Undo history lives in the browser tab and is cleared when the page reloads or
+  another tab replaces the deck.
 
 ## License
 
-The editor includes a small, locally bundled subset of Lucide 0.468.0 icons;
-its upstream notice is in `cast/static/LUCIDE-LICENSE`. No icon CDN is required.
-To rebuild after changing `cast/static/icons-entry.js`, install `lucide@0.468.0`
-and `esbuild@0.24.2` in a temporary directory, set `NODE_PATH` to that directory's
-`node_modules`, and run this from the repository:
-
-```sh
-esbuild cast/static/icons-entry.js --bundle --minify --outfile=cast/static/icons.js --legal-comments=inline
-```
+The editor bundles icons from [Lucide](https://lucide.dev) (ISC); the notice is
+in `cast/static/LUCIDE-LICENSE`. The editor and exported files bundle
+[Plotly.js](https://github.com/plotly/plotly.js) (MIT).
 
 MIT. See [LICENSE](LICENSE).

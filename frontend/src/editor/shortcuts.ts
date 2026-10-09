@@ -1,0 +1,255 @@
+/**
+ * Editor keyboard shortcuts and clipboard handling.
+ *
+ * Shortcuts are skipped while focus is in a form field or editable text, so
+ * native editing (and its own undo) keeps working there. Copy, cut and
+ * paste use the browser's clipboard events, which need no permission prompt.
+ */
+
+import { useEffect } from "react";
+
+import { plainTextToHtml } from "../model/sanitize";
+import { editableShapePoints } from "../render/shapes";
+import type { Block } from "../model/types";
+import type { Session } from "../store/session";
+import { saveWorkspace } from "./commands";
+import { isTypingTarget, useSlideNavigation } from "./hooks";
+import type { CanvasInteraction } from "./interaction";
+import {
+  CLIPBOARD_MIME,
+  CLIPBOARD_TEXT_PREFIX,
+  deleteBlocks,
+  duplicateBlocks,
+  insertBlocks,
+  nudgeBlocks,
+  parseBlocks,
+  serializeBlocks,
+  stackOrder,
+  type BlockPayload,
+} from "./operations";
+import { duplicateSlideCommand, enterEditing } from "./commands";
+import { insertImageFiles } from "./insert";
+import { moveVertex, pointsToSlide, removeVertex } from "./shapeEdit";
+import { applyBox, boxOf } from "./transform";
+import { resolveSlideIndex, type Tool } from "./uiStore";
+
+function currentSlide(session: Session) {
+  const { doc } = session.doc.getState();
+  const { currentSlideId, currentIndexHint } = session.ui.getState();
+  return doc.slides[resolveSlideIndex(doc.slides, currentSlideId, currentIndexHint)];
+}
+
+function selectedBlocks(session: Session): Block[] {
+  const slide = currentSlide(session);
+  const { selection } = session.ui.getState();
+  if (!slide) return [];
+  const order = stackOrder(slide);
+  return slide.blocks.filter((block) => selection.includes(block.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+}
+
+export function deleteSelection(session: Session): void {
+  const slide = currentSlide(session);
+  const ids = session.ui.getState().selection;
+  if (!slide || !ids.length) return;
+  session.doc.getState().transact(ids.length > 1 ? `Delete ${ids.length} objects` : "Delete", (draft) => deleteBlocks(draft, slide.id, ids));
+  session.ui.getState().clearSelection();
+}
+
+export function duplicateSelection(session: Session): void {
+  const slide = currentSlide(session);
+  const ids = session.ui.getState().selection;
+  if (!slide || !ids.length) return;
+  let created: string[] = [];
+  session.doc.getState().transact("Duplicate", (draft) => {
+    created = duplicateBlocks(draft, slide.id, ids);
+  });
+  session.ui.getState().select(created);
+}
+
+export function pastePayloads(session: Session, payloads: BlockPayload[], label = "Paste"): void {
+  const slide = currentSlide(session);
+  if (!slide || !payloads.length) return;
+  let created: string[] = [];
+  session.doc.getState().transact(label, (draft) => {
+    created = insertBlocks(draft, slide.id, payloads);
+  });
+  session.ui.getState().select(created);
+}
+
+function emptyBlock(type: Block["type"]): Omit<BlockPayload, "x" | "y" | "w" | "h"> {
+  return { type, figure: null, table: null, html: null, image: null, content: null, markdown: null, style: {} };
+}
+
+/** Pasted plain text becomes a text box (pasted image files are handled by `insertImageFiles`). */
+function textPayloadFromClipboard(data: DataTransfer): BlockPayload[] {
+  const text = data.getData("text/plain").trim();
+  if (!text) return [];
+  return [{ ...emptyBlock("text"), x: 0.1, y: 0.15, w: 0.5, h: 0.3, content: plainTextToHtml(text), style: { fontSize: 24 } }];
+}
+
+/** Single-key tools, as in Figma and Keynote. */
+const TOOL_KEYS: Record<string, Tool> = {
+  v: { kind: "select" },
+  t: { kind: "text" },
+  r: { kind: "shape", shape: "rect" },
+  o: { kind: "shape", shape: "ellipse" },
+  l: { kind: "shape", shape: "line" },
+  "Shift+l": { kind: "shape", shape: "arrow-line" },
+};
+
+export function useEditorShortcuts(session: Session, interaction: CanvasInteraction): void {
+  const nav = useSlideNavigation();
+
+  useEffect(() => {
+    const nudgeKeys: Record<string, [number, number]> = {
+      ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+    };
+
+    const onKey = (event: KeyboardEvent) => {
+      const ui = session.ui.getState();
+      if (ui.present) return; // present mode owns the keyboard
+      const mod = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+
+      if (mod && key === "s") {
+        event.preventDefault();
+        if (session.assets.getState().workspace.configured) void saveWorkspace(session);
+        return;
+      }
+      if (event.key === "Escape") {
+        // Each press steps back one level: gesture, typing, point, editing, tool, selection.
+        if (interaction.cancel()) return event.preventDefault();
+        if (ui.editing?.kind === "text") return ui.stopEditing();
+        if (isTypingTarget(event.target)) return (event.target as HTMLElement).blur();
+        if (ui.editing?.kind === "points" && ui.editing.point !== null) return ui.selectPoint(null);
+        if (ui.editing) return ui.stopEditing();
+        if (ui.tool.kind !== "select") return ui.setTool({ kind: "select" });
+        ui.clearSelection();
+        return;
+      }
+      if (isTypingTarget(event.target)) return; // fields keep their own keys and undo
+      if (interaction.busy) return;
+      const slide = currentSlide(session);
+
+      const point = ui.editing?.kind === "points" ? ui.editing.point : null;
+      const pointBlock = point !== null && ui.editing ? slide?.blocks.find((block) => block.id === ui.editing!.id) : undefined;
+
+      if (pointBlock && point !== null && (event.key === "Delete" || event.key === "Backspace")) {
+        event.preventDefault();
+        const points = removeVertex(editableShapePoints(pointBlock.style), point, pointBlock.style.shape);
+        session.doc.getState().transact("Remove point", (draft) => {
+          const block = draft.slides.find((candidate) => candidate.id === slide!.id)?.blocks.find((b) => b.id === pointBlock.id);
+          if (block) block.style.points = points;
+        });
+        ui.selectPoint(null);
+      } else if (pointBlock && point !== null && nudgeKeys[event.key]) {
+        event.preventDefault();
+        const [dx, dy] = nudgeKeys[event.key]!;
+        const step = event.shiftKey ? 10 : 1;
+        const box = boxOf(pointBlock);
+        const points = editableShapePoints(pointBlock.style);
+        const at = pointsToSlide(box, points)[point]!;
+        const result = moveVertex(box, points, point, { x: at.x + dx * step, y: at.y + dy * step });
+        session.doc.getState().transact("Move point", (draft) => {
+          const block = draft.slides.find((candidate) => candidate.id === slide!.id)?.blocks.find((b) => b.id === pointBlock.id);
+          if (!block) return;
+          applyBox(block, result.box);
+          block.style.points = result.points;
+        }, { mergeKey: `point:${pointBlock.id}:${point}`, mergeWindowMs: 1000 });
+      } else if (event.key === "Enter" && (ui.editing?.kind === "crop" || ui.editing?.kind === "points")) {
+        event.preventDefault();
+        ui.stopEditing();
+      } else if (event.key === "Enter" && ui.selection.length === 1 && slide) {
+        const block = slide.blocks.find((candidate) => candidate.id === ui.selection[0]);
+        if (block) {
+          event.preventDefault();
+          enterEditing(session, block);
+        }
+      } else if (!mod && !event.altKey && TOOL_KEYS[event.shiftKey ? `Shift+${key}` : key]) {
+        event.preventDefault();
+        ui.setTool(TOOL_KEYS[event.shiftKey ? `Shift+${key}` : key]!);
+      } else if (mod && !event.altKey && key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) session.doc.getState().redo();
+        else session.doc.getState().undo();
+      } else if (mod && !event.altKey && key === "y") {
+        event.preventDefault();
+        session.doc.getState().redo();
+      } else if (mod && key === "a") {
+        event.preventDefault();
+        if (slide) ui.select(stackOrder(slide));
+      } else if (mod && key === "d") {
+        event.preventDefault();
+        // With nothing selected, Cmd+D duplicates the slide.
+        if (ui.selection.length) duplicateSelection(session);
+        else duplicateSlideCommand(session);
+      } else if ((event.key === "Delete" || event.key === "Backspace") && ui.selection.length) {
+        event.preventDefault();
+        deleteSelection(session);
+      } else if (nudgeKeys[event.key] && ui.selection.length && slide) {
+        event.preventDefault();
+        const [dx, dy] = nudgeKeys[event.key]!;
+        const step = event.shiftKey ? 10 : 1;
+        // A burst of nudges is one undo step.
+        session.doc.getState().transact(
+          "Nudge",
+          (draft) => nudgeBlocks(draft, slide.id, ui.selection, dx * step, dy * step),
+          { mergeKey: `nudge:${ui.selection.join(",")}`, mergeWindowMs: 1000 },
+        );
+      } else if (event.key === "Tab" && slide?.blocks.length) {
+        // Tab / Shift+Tab walk through objects from the top of the stack.
+        event.preventDefault();
+        const order = stackOrder(slide).reverse();
+        const at = ui.primary ? order.indexOf(ui.primary) : -1;
+        const next = order[(at + (event.shiftKey ? -1 : 1) + order.length) % order.length]!;
+        ui.select([next]);
+      } else if (event.key === "?" ) {
+        event.preventDefault();
+        document.querySelector<HTMLButtonElement>('button[aria-label="Keyboard shortcuts"]')?.click();
+      } else if (event.key === "PageDown") {
+        event.preventDefault();
+        nav.step(1);
+      } else if (event.key === "PageUp") {
+        event.preventDefault();
+        nav.step(-1);
+      }
+    };
+
+    const writeClipboard = (event: ClipboardEvent): boolean => {
+      if (isTypingTarget(event.target) || session.ui.getState().present) return false;
+      const blocks = selectedBlocks(session);
+      if (!blocks.length || !event.clipboardData) return false;
+      const json = serializeBlocks(blocks);
+      event.clipboardData.setData(CLIPBOARD_MIME, json);
+      event.clipboardData.setData("text/plain", CLIPBOARD_TEXT_PREFIX + json);
+      event.preventDefault();
+      return true;
+    };
+    const onCopy = (event: ClipboardEvent) => void writeClipboard(event);
+    const onCut = (event: ClipboardEvent) => {
+      if (writeClipboard(event)) deleteSelection(session);
+    };
+    const onPaste = (event: ClipboardEvent) => {
+      if (isTypingTarget(event.target) || session.ui.getState().present || !event.clipboardData) return;
+      const data = event.clipboardData;
+      const ours = data.getData(CLIPBOARD_MIME) || data.getData("text/plain");
+      const payloads = ours.startsWith("[") || ours.startsWith(CLIPBOARD_TEXT_PREFIX) ? parseBlocks(ours) : [];
+      event.preventDefault();
+      if (payloads.length) return pastePayloads(session, payloads);
+      const files = Array.from(data.files);
+      if (files.some((file) => file.type.startsWith("image/"))) return void insertImageFiles(session, files);
+      pastePayloads(session, textPayloadFromClipboard(data), "Paste text");
+    };
+
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("cut", onCut);
+    document.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("cut", onCut);
+      document.removeEventListener("paste", onPaste);
+    };
+  });
+}
