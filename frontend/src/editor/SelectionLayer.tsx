@@ -12,7 +12,9 @@
 import type { CSSProperties } from "react";
 
 import { useUi } from "../app/SessionContext";
-import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from "../model/types";
+import { SLIDE_HEIGHT, SLIDE_WIDTH, type Block, type Slide } from "../model/types";
+import { describeShape, editableShapePoints, isLineShape } from "../render/shapes";
+import { insertableEdges, pointsToSlide } from "./shapeEdit";
 import { boxOf, HANDLES, handleSides, selectionFrame, type Box, type Handle } from "./transform";
 
 function boxStyle(box: Box, zoom: number): CSSProperties {
@@ -72,6 +74,66 @@ function Frame({ frame, zoom, showHandles }: { frame: Box; zoom: number; showHan
   );
 }
 
+/**
+ * Hit area that follows a shape's geometry: the filled area of closed shapes
+ * and a generous band along lines, so empty corners of the bounding box (a
+ * diagonal arrow, a triangle) never steal clicks from objects underneath.
+ */
+function ShapeHit({ block }: { block: Block }) {
+  const { element, paint } = describeShape(block.style);
+  const band = Math.max(paint.strokeWidth, 12);
+  const common = {
+    fill: element.tag === "path" && element.line ? "none" : "transparent",
+    stroke: "transparent",
+    strokeWidth: band,
+    vectorEffect: "non-scaling-stroke" as const,
+    pointerEvents: "visiblePainted" as const,
+  };
+  return (
+    <svg className="shape-hit" viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%">
+      {element.tag === "polygon" && <polygon points={element.points} {...common} />}
+      {element.tag === "ellipse" && <ellipse cx="50" cy="50" rx="48" ry="48" {...common} />}
+      {element.tag === "rect" && <rect x="1" y="1" width="98" height="98" rx={element.radius} ry={element.radius} {...common} />}
+      {element.tag === "path" && <path d={element.d} {...common} />}
+    </svg>
+  );
+}
+
+/** Vertex handles (and "+" handles to add points) for an outline being edited. */
+function OutlineHandles({ block, zoom, editing, activePoint }: {
+  block: Block; zoom: number; editing: boolean; activePoint: number | null;
+}) {
+  const points = editableShapePoints(block.style);
+  const slidePoints = pointsToSlide(boxOf(block), points);
+  const edges = editing ? insertableEdges(points, block.style.shape) : [];
+  return (
+    <>
+      {edges.map((index) => {
+        const a = slidePoints[index]!;
+        const b = slidePoints[(index + 1) % slidePoints.length]!;
+        return (
+          <div
+            key={`insert-${index}`}
+            className="insert-handle"
+            data-insert={index}
+            title="Click or drag to add a point"
+            style={{ left: ((a.x + b.x) / 2) * zoom, top: ((a.y + b.y) / 2) * zoom }}
+          />
+        );
+      })}
+      {slidePoints.map((point, index) => (
+        <div
+          key={`vertex-${index}`}
+          className={`vertex-handle${activePoint === index ? " active" : ""}`}
+          data-vertex={index}
+          title={editing ? "Drag to move; Delete removes the selected point" : "Drag to move this end"}
+          style={{ left: point.x * zoom, top: point.y * zoom }}
+        />
+      ))}
+    </>
+  );
+}
+
 export function SelectionLayer({ slide, zoom, editingId }: { slide: Slide; zoom: number; editingId?: string | null }) {
   const selection = useUi((state) => state.selection);
   const primary = useUi((state) => state.primary);
@@ -79,11 +141,17 @@ export function SelectionLayer({ slide, zoom, editingId }: { slide: Slide; zoom:
   const marquee = useUi((state) => state.marquee);
   const gestureFrame = useUi((state) => state.gestureFrame);
   const gesture = useUi((state) => state.activeGesture);
+  const editing = useUi((state) => state.editing);
+  const drawing = useUi((state) => state.tool.kind !== "select");
 
   const selected = slide.blocks.filter((block) => selection.includes(block.id));
   const boxes = selected.map((block) => boxOf(block));
+  const single = selected.length === 1 ? selected[0]! : null;
+  const pointsEditing = editing?.kind === "points" && single?.id === editing.id;
+  const line = single?.type === "shape" && isLineShape(single.style.shape) ? single : null;
+  const outline = pointsEditing ? single : line;
   const frame = gestureFrame ?? selectionFrame(boxes);
-  const showHandles = gesture === null || gesture === "resize" || gesture === "rotate";
+  const showHandles = !outline && (gesture === null || gesture === "resize" || gesture === "rotate");
 
   return (
     <div className="selection-layer" style={{ width: SLIDE_WIDTH * zoom, height: SLIDE_HEIGHT * zoom }}>
@@ -92,10 +160,12 @@ export function SelectionLayer({ slide, zoom, editingId }: { slide: Slide; zoom:
           block.id === editingId ? null : (
             <div
               key={block.id}
-              className={`hit${selection.includes(block.id) ? " selected" : ""}`}
+              className={`hit${selection.includes(block.id) ? " selected" : ""}${block.type === "shape" ? " shape" : ""}`}
               data-hit={block.id}
               style={{ ...boxStyle(boxOf(block), zoom), zIndex: block.z }}
-            />
+            >
+              {block.type === "shape" && <ShapeHit block={block} />}
+            </div>
           ),
         )}
       </div>
@@ -108,7 +178,18 @@ export function SelectionLayer({ slide, zoom, editingId }: { slide: Slide; zoom:
               style={boxStyle(boxes[index]!, zoom)}
             />
           ))}
-        {frame && <Frame frame={frame} zoom={zoom} showHandles={showHandles} />}
+        {frame && !line && (
+          <Frame frame={frame} zoom={zoom} showHandles={showHandles} />
+        )}
+        {pointsEditing && <div className="points-frame" style={boxStyle(boxes[0]!, zoom)} />}
+        {outline && !drawing && (
+          <OutlineHandles
+            block={outline}
+            zoom={zoom}
+            editing={pointsEditing}
+            activePoint={editing?.kind === "points" ? editing.point : null}
+          />
+        )}
         {guides?.xs.map((x) => (
           <div key={`x${x}`} className="guide vertical" style={{ left: x * zoom }} />
         ))}

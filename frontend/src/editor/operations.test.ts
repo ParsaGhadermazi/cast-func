@@ -13,8 +13,10 @@ import {
   nextIds,
   nudgeBlocks,
   parseBlocks,
+  patchStyle,
   reorderLayers,
   serializeBlocks,
+  setShapeKind,
   stackOrder,
 } from "./operations";
 
@@ -117,5 +119,37 @@ describe("geometry commands", () => {
     const d0 = produce(deck(), (d) => { d.slides[0]!.blocks[1]!.x = 0.2; });
     const next = produce(d0, (d) => distributeBlocks(d, "s1", ["b1", "b2", "b3"], "x"));
     expect(blocks(next)[1]!.x).toBeCloseTo(0.4, 6);
+  });
+});
+
+describe("shape styling", () => {
+  const withShapes = () =>
+    decodeDeck({
+      format: "cast.presentation",
+      schema_version: 1,
+      theme: {},
+      slides: [{ id: "s1", blocks: [
+        { id: "b1", type: "shape", x: 0.1, y: 0.5, w: 0.3, h: 0.03, style: { shape: "line", stroke: "#f00", strokeWidth: 5, fill: "transparent" } },
+        { id: "b2", type: "shape", x: 0.5, y: 0.1, w: 0.2, h: 0.2, style: { shape: "rect", fill: "#0f0", points: [[0, 0], [100, 0], [50, 100]] } },
+      ] }],
+    }).deck;
+
+  it("turns a line into a filled shape with the line's colour and a usable height", () => {
+    const next = produce(withShapes(), (d) => setShapeKind(d, "s1", ["b1"], "ellipse", "#123456"));
+    const block = next.slides[0]!.blocks[0]!;
+    expect(block.style).toMatchObject({ shape: "ellipse", fill: "#f00", stroke: "transparent", strokeWidth: 0, points: null });
+    expect(block.h).toBeCloseTo(0.22, 6);
+    expect(block.y + block.h / 2).toBeCloseTo(0.515, 6); // centred on the old line
+  });
+
+  it("turns a filled shape into a line using its fill as the stroke", () => {
+    const next = produce(withShapes(), (d) => setShapeKind(d, "s1", ["b2"], "arrow-line", "#123456"));
+    expect(next.slides[0]!.blocks[1]!.style).toMatchObject({ shape: "arrow-line", stroke: "#0f0", fill: "transparent", strokeWidth: 5, points: null });
+  });
+
+  it("patches style on several blocks and deletes undefined keys", () => {
+    const next = produce(withShapes(), (d) => patchStyle(d, "s1", ["b1", "b2"], { opacity: 0.5, points: undefined }));
+    expect(next.slides[0]!.blocks.map((b) => b.style.opacity)).toEqual([0.5, 0.5]);
+    expect(next.slides[0]!.blocks[1]!.style).not.toHaveProperty("points");
   });
 });

@@ -199,6 +199,26 @@ M3 and M4 come right after the foundation because they are the priorities. M1 re
     - Copy/paste across slides.
   - Tests: 79 Vitest tests. A Playwright suite waits for M7 (it needs a Chromium download).
 
+- **M4 done.**
+  - Drawing:
+    - The toolbar has Select, Text and a Shape split button with a 12-shape palette that remembers the last pick. Keys: V, T, R, O, L, Shift+L.
+    - Drag to draw, snapping to slide and object edges. Shift keeps proportions or 45° lines; Alt draws from the centre.
+    - A click drops the legacy default size centred on the click. The tool returns to Select afterwards.
+  - Hit testing: shapes are hit on their real geometry (filled area, or a 12 px band along lines), so the empty corners of a box don't steal clicks.
+  - Lines and arrows show endpoint handles instead of a box.
+  - Point editing (`editor/shapeEdit.ts`, pure and tested):
+    - Double-click or Enter edits points.
+    - Moving a vertex outside the box refits the box and keeps the other vertices fixed on screen, including for rotated shapes.
+    - Drag a ◇ to add a point; Delete removes; arrows nudge the point; Shift locks the direction.
+    - Escape steps back one level: point, then editing, then tool, then selection.
+  - Shape inspector, applied to every selected shape:
+    - Kind grid. Colours carry across line ↔ shape, and a flat line gets a usable height.
+    - Fill and stroke swatches with "none"; width, dash, ends and an arrowhead toggle; corners, shadow, opacity.
+    - Edit points, add/remove, flip, smooth curves, reset outline.
+    - Each slider drag is one undo step.
+  - Fixed during testing: the double-click target was retargeted to the stage by pointer capture.
+  - Tests: 89 Vitest tests.
+
 ## Decisions (confirmed)
 
 1. **The built bundle is committed**, so installing from git works without Node.

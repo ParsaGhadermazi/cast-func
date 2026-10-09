@@ -7,6 +7,7 @@ import { useEditorShortcuts } from "./shortcuts";
 import { Sidebar } from "./Sidebar";
 import { SlideRail } from "./SlideRail";
 import { Stage } from "./Stage";
+import { Toolbar } from "./Toolbar";
 import { Topbar } from "./Topbar";
 import { Viewbar } from "./Viewbar";
 
@@ -39,6 +40,7 @@ export function Editor() {
   return (
     <div className="editor">
       <Topbar />
+      <Toolbar />
       <div className="workspace">
         {railOpen && <SlideRail />}
         <Stage interaction={interaction} viewportRef={viewportRef} />

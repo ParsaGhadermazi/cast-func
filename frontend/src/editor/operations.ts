@@ -7,7 +7,17 @@
 import { current, isDraft, type Draft } from "immer";
 
 import { migrateTextBlock } from "../model/normalize";
-import { BLOCK_TYPES, SLIDE_HEIGHT, SLIDE_WIDTH, type Block, type BlockType, type Deck, type Slide } from "../model/types";
+import {
+  BLOCK_TYPES,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  type Block,
+  type BlockType,
+  type Deck,
+  type ShapeKind,
+  type ShapePoint,
+  type Slide,
+} from "../model/types";
 import { applyBox, boundsOf, boxOf, clampTranslation, translateBox, unionRects, type Box } from "./transform";
 
 type DraftDeck = Draft<Deck>;
@@ -271,4 +281,99 @@ export function parseBlocks(text: string): BlockPayload[] {
     migrateTextBlock(payload as Block);
     return [payload];
   });
+}
+
+// --------------------------------------------------------------------------
+// New objects
+// --------------------------------------------------------------------------
+
+export function emptyPayload(type: BlockType, rect: { x: number; y: number; w: number; h: number }): BlockPayload {
+  return { type, ...rect, figure: null, table: null, html: null, image: null, content: null, markdown: null, style: {} };
+}
+
+const WIDE_SHAPES = new Set(["rect", "round-rect", "chevron", "arrow-right"]);
+
+/** Size (as slide fractions) of a shape dropped with a single click. */
+export function defaultShapeSize(kind: string): { w: number; h: number } {
+  if (kind === "line" || kind === "arrow-line") return { w: 0.27, h: 0.035 };
+  if (WIDE_SHAPES.has(kind)) return { w: 0.19, h: 0.21 };
+  return { w: 0.125, h: 0.22 };
+}
+
+/** A new shape with the legacy editor's default styling in the deck accent. */
+export function shapePayload(
+  kind: ShapeKind,
+  accent: string,
+  rect: { x: number; y: number; w: number; h: number },
+  points?: ShapePoint[],
+): BlockPayload {
+  const line = kind === "line" || kind === "arrow-line";
+  return {
+    ...emptyPayload("shape", rect),
+    style: {
+      shape: kind,
+      fill: line ? "transparent" : accent,
+      stroke: line ? accent : "transparent",
+      strokeWidth: line ? 5 : 0,
+      radius: kind === "round-rect" ? 16 : 0,
+      opacity: 1,
+      ...(points ? { points } : {}),
+    },
+  };
+}
+
+// --------------------------------------------------------------------------
+// Style edits
+// --------------------------------------------------------------------------
+
+/** Merge a style patch into every given block. `null`/`undefined` values delete the key. */
+export function patchStyle(deck: DraftDeck, slideId: string, ids: string[], patch: Record<string, unknown>): void {
+  for (const block of selectedBlocks(deck, slideId, ids)) {
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) delete block.style[key];
+      else block.style[key] = value;
+    }
+  }
+}
+
+const visibleColor = (value: unknown): string | undefined =>
+  typeof value === "string" && value && value !== "transparent" && value !== "none" ? value : undefined;
+
+/**
+ * Change shape kind, carrying colours across sensibly: a filled shape that
+ * becomes a line keeps its colour as the stroke, and back again. Custom
+ * outlines are reset because they belong to the old kind.
+ */
+export function setShapeKind(deck: DraftDeck, slideId: string, ids: string[], kind: ShapeKind, accent: string): void {
+  const line = kind === "line" || kind === "arrow-line";
+  for (const block of selectedBlocks(deck, slideId, ids)) {
+    if (block.type !== "shape") continue;
+    const style = block.style;
+    const wasLine = style.shape === "line" || style.shape === "arrow-line";
+    style.shape = kind;
+    style.points = null;
+    style.smooth = false;
+    if (line) {
+      style.stroke = visibleColor(style.stroke) ?? visibleColor(style.fill) ?? accent;
+      style.strokeWidth = Number(style.strokeWidth) || 5;
+      style.fill = "transparent";
+      if (kind === "arrow-line" && !style.lineCap) style.lineCap = "round";
+    } else {
+      style.fill = visibleColor(style.fill) ?? (wasLine ? visibleColor(style.stroke) : undefined) ?? accent;
+      if (wasLine) {
+        style.stroke = "transparent";
+        style.strokeWidth = 0;
+      } else if (style.strokeWidth == null) style.strokeWidth = 0;
+      if (kind === "round-rect" && !style.radius) style.radius = 16;
+    }
+    // A flat line turned into a shape gets a usable height, centred on the line.
+    if (wasLine && !line) {
+      const size = defaultShapeSize(kind);
+      if (block.h < size.h) {
+        const centre = block.y + block.h / 2;
+        block.h = size.h;
+        block.y = Math.min(Math.max(centre - size.h / 2, 0), 1 - size.h);
+      }
+    }
+  }
 }

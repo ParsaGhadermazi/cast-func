@@ -37,6 +37,7 @@ import {
   type AlignEdge,
   type LayerMove,
 } from "./operations";
+import { ShapeSection } from "../inspector/ShapeSection";
 import { deleteSelection, duplicateSelection } from "./shortcuts";
 import { boxOf, type Box } from "./transform";
 
@@ -168,6 +169,7 @@ function PropertiesPanel() {
   return (
     <>
       {selected.length > 1 && <p className="panel-summary">{selected.length} objects selected</p>}
+      {selected.every((block) => block.type === "shape") && <ShapeSection slideId={slide.id} blocks={selected} />}
       <ArrangeSection slideId={slide.id} ids={selected.map((block) => block.id)} />
       {selected.length === 1 && <GeometrySection slideId={slide.id} block={selected[0]!} />}
     </>

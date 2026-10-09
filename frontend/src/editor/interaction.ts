@@ -5,6 +5,10 @@
  *        ─ pointerdown on handle ──▶ resize
  *        ─ pointerdown on rotate ──▶ rotate
  *        ─ pointerdown on empty  ──▶ pressing ── moved ──────────▶ marquee
+ *        ─ shape tool, anywhere  ──▶ pressing ── moved ──────────▶ draw
+ *                                             └─ click ─────────▶ default-size shape
+ *        ─ pointerdown on vertex ──▶ vertex (drag a point of a line or outline)
+ *        ─ pointerdown on "+"    ──▶ vertex (insert a point, then drag it)
  *
  * Gestures preview through `beginGesture/updateGesture` on the document
  * store and commit once on release (one undo step). Escape cancels.
@@ -12,10 +16,24 @@
  * screen rectangle and the zoom, so handles keep their screen size.
  */
 
+import { SLIDE_HEIGHT, SLIDE_WIDTH, type ShapeKind, type ShapePoint } from "../model/types";
+import { editableShapePoints, isLineShape } from "../render/shapes";
 import type { Session } from "../store/session";
 import { resolveSlideIndex } from "./uiStore";
-import { allBlockIds, insertBlocks, nextIds, setBoxes, slideById, stackOrder, toPayload } from "./operations";
 import {
+  allBlockIds,
+  defaultShapeSize,
+  insertBlocks,
+  nextIds,
+  setBoxes,
+  shapePayload,
+  slideById,
+  stackOrder,
+  toPayload,
+} from "./operations";
+import { insertVertex, lineBetween, moveVertex, pointsToSlide, snapToAngle } from "./shapeEdit";
+import {
+  applyBox,
   boundsOf,
   boxOf,
   centerOf,
@@ -43,6 +61,8 @@ export type PointerTarget =
   | { kind: "block"; id: string }
   | { kind: "handle"; handle: Handle }
   | { kind: "rotate" }
+  | { kind: "vertex"; index: number }
+  | { kind: "insert"; index: number }
   | { kind: "background" };
 
 const DRAG_THRESHOLD = 3; // screen pixels
@@ -57,6 +77,22 @@ interface Pressing {
   onClick: (() => void) | null;
   alt: boolean;
   shift: boolean;
+  /** Set when the shape tool is active: dragging draws this shape. */
+  draw: ShapeKind | null;
+}
+
+interface VertexDrag {
+  kind: "vertex";
+  id: string;
+  index: number;
+  box: Box;
+  points: ShapePoint[];
+  /** Where the vertex started on the slide (for Shift axis lock). */
+  origin: Point;
+  startScreen: Point;
+  moved: boolean;
+  label: string;
+  targets: SnapTargets;
 }
 
 type Active =
@@ -64,7 +100,9 @@ type Active =
   | { kind: "move"; start: Point; boxes: Map<string, Box>; frame: Box; targets: SnapTargets; duplicateOf: string[] | null }
   | { kind: "resize"; start: Point; handle: Handle; boxes: Map<string, Box>; frame: Box; targets: SnapTargets }
   | { kind: "rotate"; start: Point; boxes: Map<string, Box>; frame: Box; pivot: Point }
-  | { kind: "marquee"; start: Point; base: string[] };
+  | { kind: "marquee"; start: Point; base: string[] }
+  | { kind: "draw"; start: Point; shape: ShapeKind; id: string; targets: SnapTargets }
+  | VertexDrag;
 
 export class CanvasInteraction {
   private active: Active | null = null;
@@ -113,12 +151,40 @@ export class CanvasInteraction {
     return this.session.ui.getState().snap && !(event.metaKey || event.ctrlKey);
   }
 
+  /** Snap a point's x and y independently to the nearest targets. */
+  private snapPoint(point: Point, targets: SnapTargets): Point {
+    const threshold = SNAP_DISTANCE / this.zoom();
+    const pick = (value: number, candidates: number[]) => {
+      let best = value;
+      let distance = threshold;
+      for (const candidate of candidates) {
+        if (Math.abs(candidate - value) <= distance) {
+          distance = Math.abs(candidate - value);
+          best = candidate;
+        }
+      }
+      return best;
+    };
+    return { x: pick(point.x, targets.xs), y: pick(point.y, targets.ys) };
+  }
+
+  /** The shape whose points are on screen: the one in point editing, or a selected line. */
+  private outlineBlock() {
+    const ui = this.session.ui.getState();
+    const id = ui.editing?.kind === "points" ? ui.editing.id : ui.selection.length === 1 ? ui.selection[0] : null;
+    const block = this.slide()?.blocks.find((candidate) => candidate.id === id);
+    if (!block || block.type !== "shape") return null;
+    if (ui.editing?.kind !== "points" && !isLineShape(block.style.shape)) return null;
+    return block;
+  }
+
   /** Blocks under a screen point, topmost first, using the hit layer. */
   private stackAt(event: { clientX: number; clientY: number }): string[] {
-    return document
+    const ids = document
       .elementsFromPoint(event.clientX, event.clientY)
-      .map((element) => (element as HTMLElement).dataset?.hit)
+      .map((element) => element.closest<HTMLElement>("[data-hit]")?.dataset.hit)
       .filter((id): id is string => !!id);
+    return [...new Set(ids)];
   }
 
   // ----------------------------------------------------------- pointer down
@@ -131,6 +197,52 @@ export class CanvasInteraction {
     const start = this.toSlide(event);
     const additive = event.shiftKey || event.metaKey || event.ctrlKey;
     this.pointerId = event.pointerId;
+
+    if (target.kind === "vertex" || target.kind === "insert") {
+      const block = this.outlineBlock();
+      if (!block) return;
+      const box = boxOf(block);
+      let points = editableShapePoints(block.style);
+      let index = target.index;
+      if (target.kind === "insert") {
+        points = insertVertex(points, index);
+        index += 1;
+      }
+      const origin = pointsToSlide(box, points)[index]!;
+      this.active = {
+        kind: "vertex", id: block.id, index, box, points, origin,
+        startScreen: { x: event.clientX, y: event.clientY }, moved: false,
+        label: target.kind === "insert" ? "Add point" : "Move point",
+        targets: this.targetsExcluding([block.id]),
+      };
+      if (target.kind === "insert") {
+        // The new point exists from the first press; dragging then moves it.
+        this.beginGesture("resize");
+        const inserted = points;
+        const slideId = slide.id;
+        this.session.doc.getState().updateGesture((draft) => {
+          const draftBlock = slideById(draft, slideId)?.blocks.find((candidate) => candidate.id === block.id);
+          if (draftBlock) draftBlock.style.points = inserted;
+        });
+      }
+      ui.selectPoint(index);
+      return;
+    }
+
+    if (ui.tool.kind === "shape" && target.kind !== "handle" && target.kind !== "rotate") {
+      const targets = this.targetsExcluding([]);
+      this.active = {
+        kind: "pressing",
+        start: ui.snap ? this.snapPoint(start, targets) : start,
+        startScreen: { x: event.clientX, y: event.clientY },
+        target,
+        onClick: null,
+        alt: event.altKey,
+        shift: event.shiftKey,
+        draw: ui.tool.shape,
+      };
+      return;
+    }
 
     if (target.kind === "handle" || target.kind === "rotate") {
       const boxes = this.selectedBoxes();
@@ -180,6 +292,7 @@ export class CanvasInteraction {
       onClick,
       alt: event.altKey,
       shift: additive,
+      draw: null,
     };
   }
 
@@ -193,7 +306,8 @@ export class CanvasInteraction {
     if (active.kind === "pressing") {
       const moved = Math.hypot(event.clientX - active.startScreen.x, event.clientY - active.startScreen.y);
       if (moved < DRAG_THRESHOLD) return;
-      if (active.target.kind === "block") this.startMove(active);
+      if (active.draw) this.startDraw(active, active.draw);
+      else if (active.target.kind === "block") this.startMove(active);
       else this.startMarquee(active);
       this.pointerMove(event);
       return;
@@ -202,6 +316,68 @@ export class CanvasInteraction {
     const doc = this.session.doc.getState();
     const slideId = this.slide()?.id;
     if (!slideId) return;
+
+    if (active.kind === "vertex") {
+      if (!active.moved) {
+        if (Math.hypot(event.clientX - active.startScreen.x, event.clientY - active.startScreen.y) < DRAG_THRESHOLD) return;
+        active.moved = true;
+        if (!this.session.doc.getState().gestureActive) this.beginGesture("resize");
+      }
+      let to = point;
+      const snapping = this.snapping(event);
+      if (event.shiftKey) {
+        const slidePoints = pointsToSlide(active.box, active.points);
+        if (slidePoints.length === 2) to = snapToAngle(slidePoints[1 - active.index]!, point);
+        else if (Math.abs(point.x - active.origin.x) >= Math.abs(point.y - active.origin.y)) to = { x: point.x, y: active.origin.y };
+        else to = { x: active.origin.x, y: point.y };
+      } else if (snapping) {
+        to = this.snapPoint(point, active.targets);
+      }
+      const result = moveVertex(active.box, active.points, active.index, to);
+      const id = active.id;
+      doc.updateGesture((draft) => {
+        const block = slideById(draft, slideId)?.blocks.find((candidate) => candidate.id === id);
+        if (!block) return;
+        applyBox(block, result.box);
+        block.style.points = result.points;
+      });
+      this.session.ui.setState({
+        guides: snapping && !event.shiftKey ? { xs: active.targets.xs.filter((x) => Math.abs(x - to.x) < 0.5), ys: active.targets.ys.filter((y) => Math.abs(y - to.y) < 0.5) } : null,
+      });
+      return;
+    }
+
+    if (active.kind === "draw") {
+      const snapping = this.snapping(event);
+      let end = snapping ? this.snapPoint(point, active.targets) : point;
+      const accent = this.session.doc.getState().doc.theme.accent;
+      let payload;
+      if (isLineShape(active.shape)) {
+        if (event.shiftKey) end = snapToAngle(active.start, end);
+        const { box, points } = lineBetween(active.start, end);
+        payload = shapePayload(active.shape, accent, normalized(box), points);
+      } else {
+        let dx = end.x - active.start.x;
+        let dy = end.y - active.start.y;
+        if (event.shiftKey) {
+          // Square / circle: the larger side wins, keeping the drag direction.
+          const side = Math.max(Math.abs(dx), Math.abs(dy));
+          dx = Math.sign(dx || 1) * side;
+          dy = Math.sign(dy || 1) * side;
+        }
+        const rect = event.altKey
+          ? { x: active.start.x - Math.abs(dx), y: active.start.y - Math.abs(dy), w: 2 * Math.abs(dx), h: 2 * Math.abs(dy) }
+          : rectFromPoints(active.start, { x: active.start.x + dx, y: active.start.y + dy });
+        payload = shapePayload(active.shape, accent, normalized({ ...rect, rotation: 0 }));
+      }
+      doc.updateGesture((draft) => {
+        insertBlocks(draft, slideId, [payload], 0);
+      });
+      this.session.ui.setState({
+        guides: snapping ? { xs: active.targets.xs.filter((x) => Math.abs(x - end.x) < 0.5), ys: active.targets.ys.filter((y) => Math.abs(y - end.y) < 0.5) } : null,
+      });
+      return;
+    }
 
     if (active.kind === "move") {
       let dx = point.x - active.start.x;
@@ -316,6 +492,36 @@ export class CanvasInteraction {
     if (duplicateOf) this.session.ui.getState().select(ids);
   }
 
+  private startDraw(pressing: Pressing, shape: ShapeKind): void {
+    const id = nextIds(allBlockIds(this.session.doc.getState().doc), "b", 1)[0]!;
+    this.active = { kind: "draw", start: pressing.start, shape, id, targets: this.targetsExcluding([]) };
+    this.beginGesture("resize");
+  }
+
+  /** A click with the shape tool drops a default-size shape centred on the click. */
+  private placeShape(at: Point, shape: ShapeKind): void {
+    const slide = this.slide();
+    if (!slide) return;
+    const size = defaultShapeSize(shape);
+    const rect = {
+      x: Math.min(Math.max(at.x / SLIDE_WIDTH - size.w / 2, 0), 1 - size.w),
+      y: Math.min(Math.max(at.y / SLIDE_HEIGHT - size.h / 2, 0), 1 - size.h),
+      ...size,
+    };
+    const payload = shapePayload(shape, this.session.doc.getState().doc.theme.accent, rect);
+    let created: string[] = [];
+    this.session.doc.getState().transact("Add shape", (draft) => {
+      created = insertBlocks(draft, slide.id, [payload], 0);
+    });
+    this.finishCreate(created[0]);
+  }
+
+  private finishCreate(id: string | undefined): void {
+    const ui = this.session.ui.getState();
+    ui.setTool({ kind: "select" });
+    if (id) ui.select([id]);
+  }
+
   private startMarquee(pressing: Pressing): void {
     this.active = { kind: "marquee", start: pressing.start, base: pressing.shift ? this.session.ui.getState().selection : [] };
     this.session.ui.setState({ activeGesture: "marquee" });
@@ -329,8 +535,14 @@ export class CanvasInteraction {
     this.active = null;
     this.pointerId = null;
     const labels = { move: "Move", resize: "Resize", rotate: "Rotate" } as const;
-    if (active.kind === "pressing") active.onClick?.();
-    else if (active.kind === "move" && active.duplicateOf) this.session.doc.getState().commitGesture("Duplicate");
+    if (active.kind === "pressing" && active.draw) this.placeShape(active.start, active.draw);
+    else if (active.kind === "pressing") active.onClick?.();
+    else if (active.kind === "draw") {
+      this.session.doc.getState().commitGesture("Add shape");
+      this.finishCreate(active.id);
+    } else if (active.kind === "vertex") {
+      if (this.session.doc.getState().gestureActive) this.session.doc.getState().commitGesture(active.label);
+    } else if (active.kind === "move" && active.duplicateOf) this.session.doc.getState().commitGesture("Duplicate");
     else if (active.kind === "move" || active.kind === "resize" || active.kind === "rotate") {
       this.session.doc.getState().commitGesture(labels[active.kind]);
     }
@@ -343,7 +555,7 @@ export class CanvasInteraction {
     if (!active) return false;
     this.active = null;
     this.pointerId = null;
-    if (active.kind === "move" || active.kind === "resize" || active.kind === "rotate") {
+    if (active.kind === "move" || active.kind === "resize" || active.kind === "rotate" || active.kind === "draw" || active.kind === "vertex") {
       this.session.doc.getState().cancelGesture();
       if (active.kind === "move" && active.duplicateOf) this.session.ui.getState().select(active.duplicateOf);
     }
@@ -356,3 +568,10 @@ export class CanvasInteraction {
     this.session.ui.setState({ guides: null, marquee: null, gestureFrame: null, activeGesture: null });
   }
 }
+
+const normalized = (box: Box) => ({
+  x: box.x / SLIDE_WIDTH,
+  y: box.y / SLIDE_HEIGHT,
+  w: box.w / SLIDE_WIDTH,
+  h: box.h / SLIDE_HEIGHT,
+});

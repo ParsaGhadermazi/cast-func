@@ -9,6 +9,7 @@
 import { useEffect } from "react";
 
 import { plainTextToHtml } from "../model/sanitize";
+import { editableShapePoints } from "../render/shapes";
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Block } from "../model/types";
 import type { Session } from "../store/session";
 import { saveWorkspace } from "./commands";
@@ -26,7 +27,10 @@ import {
   stackOrder,
   type BlockPayload,
 } from "./operations";
-import { resolveSlideIndex } from "./uiStore";
+import { enterEditing } from "./commands";
+import { moveVertex, pointsToSlide, removeVertex } from "./shapeEdit";
+import { applyBox, boxOf } from "./transform";
+import { resolveSlideIndex, type Tool } from "./uiStore";
 
 function currentSlide(session: Session) {
   const { doc } = session.doc.getState();
@@ -104,6 +108,16 @@ async function payloadsFromForeignClipboard(data: DataTransfer): Promise<BlockPa
   return [];
 }
 
+/** Single-key tools, as in Figma and Keynote. */
+const TOOL_KEYS: Record<string, Tool> = {
+  v: { kind: "select" },
+  t: { kind: "text" },
+  r: { kind: "shape", shape: "rect" },
+  o: { kind: "shape", shape: "ellipse" },
+  l: { kind: "shape", shape: "line" },
+  "Shift+l": { kind: "shape", shape: "arrow-line" },
+};
+
 export function useEditorShortcuts(session: Session, interaction: CanvasInteraction): void {
   const nav = useSlideNavigation();
 
@@ -124,8 +138,13 @@ export function useEditorShortcuts(session: Session, interaction: CanvasInteract
         return;
       }
       if (event.key === "Escape") {
+        // Each press steps back one level: gesture, typing, point, editing, tool, selection.
         if (interaction.cancel()) return event.preventDefault();
+        if (ui.editing?.kind === "text") return ui.stopEditing();
         if (isTypingTarget(event.target)) return (event.target as HTMLElement).blur();
+        if (ui.editing?.kind === "points" && ui.editing.point !== null) return ui.selectPoint(null);
+        if (ui.editing) return ui.stopEditing();
+        if (ui.tool.kind !== "select") return ui.setTool({ kind: "select" });
         ui.clearSelection();
         return;
       }
@@ -133,7 +152,41 @@ export function useEditorShortcuts(session: Session, interaction: CanvasInteract
       if (interaction.busy) return;
       const slide = currentSlide(session);
 
-      if (mod && !event.altKey && key === "z") {
+      const point = ui.editing?.kind === "points" ? ui.editing.point : null;
+      const pointBlock = point !== null && ui.editing ? slide?.blocks.find((block) => block.id === ui.editing!.id) : undefined;
+
+      if (pointBlock && point !== null && (event.key === "Delete" || event.key === "Backspace")) {
+        event.preventDefault();
+        const points = removeVertex(editableShapePoints(pointBlock.style), point, pointBlock.style.shape);
+        session.doc.getState().transact("Remove point", (draft) => {
+          const block = draft.slides.find((candidate) => candidate.id === slide!.id)?.blocks.find((b) => b.id === pointBlock.id);
+          if (block) block.style.points = points;
+        });
+        ui.selectPoint(null);
+      } else if (pointBlock && point !== null && nudgeKeys[event.key]) {
+        event.preventDefault();
+        const [dx, dy] = nudgeKeys[event.key]!;
+        const step = event.shiftKey ? 10 : 1;
+        const box = boxOf(pointBlock);
+        const points = editableShapePoints(pointBlock.style);
+        const at = pointsToSlide(box, points)[point]!;
+        const result = moveVertex(box, points, point, { x: at.x + dx * step, y: at.y + dy * step });
+        session.doc.getState().transact("Move point", (draft) => {
+          const block = draft.slides.find((candidate) => candidate.id === slide!.id)?.blocks.find((b) => b.id === pointBlock.id);
+          if (!block) return;
+          applyBox(block, result.box);
+          block.style.points = result.points;
+        }, { mergeKey: `point:${pointBlock.id}:${point}`, mergeWindowMs: 1000 });
+      } else if (event.key === "Enter" && ui.selection.length === 1 && slide) {
+        const block = slide.blocks.find((candidate) => candidate.id === ui.selection[0]);
+        if (block) {
+          event.preventDefault();
+          enterEditing(session, block);
+        }
+      } else if (!mod && !event.altKey && TOOL_KEYS[event.shiftKey ? `Shift+${key}` : key]) {
+        event.preventDefault();
+        ui.setTool(TOOL_KEYS[event.shiftKey ? `Shift+${key}` : key]!);
+      } else if (mod && !event.altKey && key === "z") {
         event.preventDefault();
         if (event.shiftKey) session.doc.getState().redo();
         else session.doc.getState().undo();

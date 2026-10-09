@@ -140,3 +140,64 @@ input:focus { border-color: var(--ui-accent); box-shadow: 0 0 0 3px color-mix(in
 .layer-item[aria-pressed="true"] { background: color-mix(in srgb, var(--ui-accent) 16%, var(--panel)); border-color: var(--ui-accent); }
 .layer-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .layer-type { color: var(--muted); font-size: 10px; }
+
+/* ---- shapes: geometry hit areas, outline editing, drawing ---- */
+.hit.shape:not(.selected) { pointer-events: none; }
+.hit.shape:not(.selected):hover { outline: none; }
+.shape-hit { position: absolute; inset: 0; overflow: visible; }
+.hit.shape:not(.selected) .shape-hit:hover * { stroke: color-mix(in srgb, var(--ui-accent) 70%, transparent); stroke-width: 2px; }
+.points-frame { position: absolute; outline: 1px dashed color-mix(in srgb, var(--ui-accent) 70%, transparent); transform-origin: 50% 50%; }
+.vertex-handle { position: absolute; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; background: #fff;
+  border: 2px solid var(--ui-accent); pointer-events: auto; cursor: grab; box-shadow: 0 1px 3px rgba(0,0,0,.4); z-index: 2; }
+.vertex-handle::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; }
+.vertex-handle.active { background: #f59e0b; border-color: #fff; }
+.vertex-handle:active { cursor: grabbing; }
+.insert-handle { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; transform: rotate(45deg); background: #fff;
+  border: 1.5px solid var(--ui-accent); opacity: .65; pointer-events: auto; cursor: copy; z-index: 1; }
+.insert-handle::before { content: ""; position: absolute; inset: -6px; }
+.insert-handle:hover { opacity: 1; background: var(--ui-accent); }
+.stage.tool-shape, .stage.tool-shape .hit, .stage.tool-text, .stage.tool-text .hit { cursor: crosshair; }
+
+/* ---- toolbar and popovers ---- */
+.toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: none; }
+.toolbar .divider { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--line); }
+.split { display: inline-flex; }
+.split > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split .split-arrow { width: 22px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.shape-icon { display: inline-flex; flex: 0 0 auto; }
+.shape-icon svg { overflow: visible; }
+.popover { position: fixed; z-index: 2147482000; max-width: calc(100vw - 24px); max-height: calc(100dvh - 120px); overflow: auto;
+  padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 16px 48px rgba(0,0,0,.55); }
+.shape-palette { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.shape-palette button { height: 36px; padding: 0; background: transparent; border-color: transparent; color: var(--muted); }
+.shape-palette button:hover:not(:disabled) { color: var(--fg); }
+.shape-palette button.on { background: color-mix(in srgb, var(--ui-accent) 80%, #20242e); color: #fff; }
+
+/* ---- inspector controls ---- */
+.row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; min-height: 28px; }
+.row-label { flex: 0 0 64px; color: var(--muted); font-size: 12px; }
+.row-control { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.row-control select { width: 100%; }
+select { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; }
+.color-field { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.swatches { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.swatch { width: 20px; height: 20px; min-height: 0; padding: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,.22); }
+.swatch.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--ui-accent); }
+.swatch.none { background: linear-gradient(135deg, transparent 44%, #ff6b6b 45%, #ff6b6b 55%, transparent 56%), #fff; }
+.swatches input[type=color] { width: 24px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); cursor: pointer; }
+.mixed { color: var(--muted); font-size: 11px; }
+.range-field { display: flex; align-items: center; gap: 8px; width: 100%; }
+.range-field input { flex: 1; min-width: 0; accent-color: var(--ui-accent); }
+.range-field output { min-width: 38px; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.toggle-field { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+.toggle-field input { accent-color: var(--ui-accent); }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.segmented button { border: 0; border-radius: 0; background: var(--bg); color: var(--muted); min-height: 28px; padding: 4px 9px; }
+.segmented button.on { background: var(--ui-accent); color: #fff; }
+.shape-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 12px; }
+.shape-grid button { height: 32px; padding: 0; background: var(--bg); color: var(--muted); }
+.shape-grid button.on { color: #fff; border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 30%, var(--card)); }
+.outline-tools { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.outline-tools > button { justify-content: flex-start; }
+.outline-tools > button.on { border-color: var(--ui-accent); color: #fff; }

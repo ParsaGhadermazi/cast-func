@@ -7,12 +7,21 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import { clamp } from "../model/geometry";
-import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from "../model/types";
+import { SLIDE_HEIGHT, SLIDE_WIDTH, type ShapeKind, type Slide } from "../model/types";
 import type { Box, Guides, Rect } from "./transform";
 
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 1.6;
 const STAGE_PADDING = 64;
+
+/** What a click on empty canvas does. */
+export type Tool = { kind: "select" } | { kind: "shape"; shape: ShapeKind } | { kind: "text" };
+
+/** An object being edited in place (one at a time). */
+export type Editing =
+  | { kind: "text"; id: string }
+  | { kind: "points"; id: string; point: number | null }
+  | { kind: "crop"; id: string };
 
 export interface UiState {
   currentSlideId: string | null;
@@ -36,6 +45,10 @@ export interface UiState {
   gestureFrame: Box | null;
   activeGesture: "move" | "resize" | "rotate" | "marquee" | null;
   sidebarTab: "properties" | "layers";
+  tool: Tool;
+  /** The shape the shape button inserts (last one picked). */
+  shapeKind: ShapeKind;
+  editing: Editing | null;
 
   goToSlide(slides: Slide[], index: number): void;
   setZoom(zoom: number): void;
@@ -53,6 +66,10 @@ export interface UiState {
   pruneSelection(present: Set<string>): void;
   toggleSnap(): void;
   setSidebarTab(tab: UiState["sidebarTab"]): void;
+  setTool(tool: Tool): void;
+  startEditing(editing: Editing): void;
+  stopEditing(): void;
+  selectPoint(point: number | null): void;
 }
 
 export type UiStore = StoreApi<UiState>;
@@ -89,13 +106,16 @@ export function createUiStore(): UiStore {
     gestureFrame: null,
     activeGesture: null,
     sidebarTab: "properties",
+    tool: { kind: "select" },
+    shapeKind: "rect",
+    editing: null,
 
     goToSlide(slides, index) {
       if (!slides.length) return set({ currentSlideId: null, currentIndexHint: 0, selection: [], primary: null });
       const target = clamp(index, 0, slides.length - 1);
       const id = slides[target]!.id;
       if (id === get().currentSlideId) return set({ currentIndexHint: target });
-      set({ currentSlideId: id, currentIndexHint: target, selection: [], primary: null });
+      set({ currentSlideId: id, currentIndexHint: target, selection: [], primary: null, editing: null });
     },
     setZoom(zoom) {
       set({ zoom: clamp(Math.round(zoom * 100) / 100, MIN_ZOOM, MAX_ZOOM), fit: false });
@@ -127,7 +147,13 @@ export function createUiStore(): UiStore {
     },
     select(ids, primary) {
       const unique = [...new Set(ids)];
-      set({ selection: unique, primary: primary === undefined ? unique.at(-1) ?? null : primary });
+      const editing = get().editing;
+      set({
+        selection: unique,
+        primary: primary === undefined ? unique.at(-1) ?? null : primary,
+        // In-place editing ends when its object is no longer the only selection.
+        editing: editing && unique.length === 1 && unique[0] === editing.id ? editing : null,
+      });
     },
     toggleSelected(id) {
       const { selection } = get();
@@ -137,13 +163,18 @@ export function createUiStore(): UiStore {
       } else set({ selection: [...selection, id], primary: id });
     },
     clearSelection() {
-      if (get().selection.length) set({ selection: [], primary: null });
+      if (get().selection.length || get().editing) set({ selection: [], primary: null, editing: null });
     },
     pruneSelection(present) {
       const { selection, primary } = get();
       const kept = selection.filter((id) => present.has(id));
       if (kept.length !== selection.length) {
-        set({ selection: kept, primary: primary && present.has(primary) ? primary : kept.at(-1) ?? null });
+        const editing = get().editing;
+        set({
+          selection: kept,
+          primary: primary && present.has(primary) ? primary : kept.at(-1) ?? null,
+          editing: editing && present.has(editing.id) ? editing : null,
+        });
       }
     },
     toggleSnap() {
@@ -151,6 +182,19 @@ export function createUiStore(): UiStore {
     },
     setSidebarTab(tab) {
       set({ sidebarTab: tab });
+    },
+    setTool(tool) {
+      set({ tool, ...(tool.kind === "shape" ? { shapeKind: tool.shape } : {}), ...(tool.kind !== "select" ? { editing: null } : {}) });
+    },
+    startEditing(editing) {
+      set({ editing, selection: [editing.id], primary: editing.id, tool: { kind: "select" } });
+    },
+    stopEditing() {
+      if (get().editing) set({ editing: null });
+    },
+    selectPoint(point) {
+      const editing = get().editing;
+      if (editing?.kind === "points") set({ editing: { ...editing, point } });
     },
     togglePanel(panel) {
       if (panel === "rail") set({ railOpen: !get().railOpen });

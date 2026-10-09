@@ -5,11 +5,16 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH } from "../model/types";
 import { SlideView } from "../render/SlideView";
 import { useCurrentSlide } from "./hooks";
 import type { CanvasInteraction, PointerTarget } from "./interaction";
+import { enterEditing } from "./commands";
 import { SelectionLayer } from "./SelectionLayer";
 import type { Handle } from "./transform";
 
 function classify(element: Element | null): PointerTarget | null {
   if (!element) return null;
+  const vertex = element.closest<HTMLElement>("[data-vertex]");
+  if (vertex) return { kind: "vertex", index: Number(vertex.dataset.vertex) };
+  const insert = element.closest<HTMLElement>("[data-insert]");
+  if (insert) return { kind: "insert", index: Number(insert.dataset.insert) };
   const handle = element.closest<HTMLElement>("[data-handle]");
   if (handle) return { kind: "handle", handle: handle.dataset.handle as Handle };
   if (element.closest("[data-rotate]")) return { kind: "rotate" };
@@ -27,6 +32,7 @@ export function Stage({ interaction, viewportRef }: {
   const theme = useDoc((state) => state.doc.theme);
   const zoom = useUi((state) => state.zoom);
   const grid = useUi((state) => state.grid);
+  const tool = useUi((state) => state.tool.kind);
   const { slide } = useCurrentSlide();
   const stage = useRef<HTMLElement>(null);
 
@@ -64,8 +70,15 @@ export function Stage({ interaction, viewportRef }: {
   return (
     <main
       ref={stage}
-      className="stage"
+      className={`stage tool-${tool}`}
       onPointerDown={onPointerDown}
+      onDoubleClick={(event) => {
+        // Pointer capture retargets the event to the stage; look at what is under the pointer.
+        const target = classify(document.elementFromPoint(event.clientX, event.clientY));
+        if (target?.kind !== "block") return;
+        const block = slide?.blocks.find((candidate) => candidate.id === target.id);
+        if (block) enterEditing(session, block);
+      }}
       onPointerMove={(event) => interaction.pointerMove(event.nativeEvent)}
       onPointerUp={(event) => interaction.pointerUp(event.nativeEvent)}
       onPointerCancel={() => interaction.cancel()}
