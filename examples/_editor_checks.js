@@ -142,6 +142,38 @@ async function checkEditor(page) {
     await page.getByRole("tab", { name: "Properties", exact: true }).click();
     await page.locator("#blk-b2 .rich").dblclick();
     await page.locator("#blk-b2 .rich[contenteditable=true]").waitFor();
+    await page.locator("#blk-b2 .rich").evaluate((rich) => {
+      const item = rich.querySelectorAll("li")[1];
+      const text = [...item.childNodes].find(
+        (node) => node.nodeType === Node.TEXT_NODE && node.data.trim(),
+      );
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.keyboard.press("Tab");
+    check(
+      await page.locator("#blk-b2 .rich").evaluate((rich) => {
+        const item = [...rich.querySelectorAll("li")].find((li) =>
+          li.textContent.startsWith("Reusable figures"),
+        );
+        return item?.parentElement?.parentElement?.tagName === "LI";
+      }),
+      "Tab did not indent the current bullet",
+    );
+    await page.keyboard.press("Shift+Tab");
+    check(
+      await page.locator("#blk-b2 .rich").evaluate((rich) => {
+        const item = [...rich.querySelectorAll("li")].find((li) =>
+          li.textContent.startsWith("Reusable figures"),
+        );
+        return item?.parentElement === rich.querySelector(":scope > ul");
+      }),
+      "Shift+Tab did not outdent the current bullet",
+    );
     await page
       .locator("#blk-b2 .rich li span")
       .first()
@@ -151,6 +183,7 @@ async function checkEditor(page) {
         const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
+        document.dispatchEvent(new Event("selectionchange"));
       });
     const size = page.locator('[data-character-property="font-size"]');
     await size.fill("16");
@@ -184,7 +217,8 @@ async function checkEditor(page) {
       data: { order: order.slice(1).concat(order[0]) },
     });
     await page.waitForFunction(
-      () => document.querySelector("#slide-number").value === "18",
+      () => document.querySelector("#slide-number").value === "18"
+        && !!document.querySelector("#blk-b1"),
     );
     check(
       await page.locator("#blk-b1").isVisible(),

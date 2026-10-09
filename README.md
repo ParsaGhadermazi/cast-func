@@ -177,7 +177,17 @@ Once assets are registered, the browser is a free-form canvas:
 - Figures, tables, HTML, images, text, and shapes (rectangle, ellipse, triangle,
   line) can be placed anywhere on a 16:9 canvas.
 - Blocks can be dragged, resized from any corner, rotated, and stacked in z-order;
-  arrow keys nudge the selection and the Delete key removes it.
+  edge handles resize from the sides. New shapes start at sizes suited to their
+  type. Shift-click or Cmd/Ctrl-click selects multiple objects, which can then be
+  moved together; arrow keys nudge the selection and Delete removes it.
+- Select a shape and choose **Edit points** in Properties to reshape its outline.
+  Drag the round points to move vertices, click a small diamond between them to
+  add a point, or select a vertex and remove it with Delete. Arrow keys nudge the
+  selected point; Shift constrains a point drag to one axis. The point toolkit
+  can add or remove points, flip the outline horizontally or vertically, and
+  switch between smooth curves and straight edges. **Reset outline** restores
+  the original shape. Edited outlines remain editable in saved decks and frozen
+  HTML; older decks need no conversion.
 - The inspector's Arrange controls align a block to the canvas (left/center/right,
   top/middle/bottom), duplicate it, or send it back in the stack.
 - Slides are managed from the rail on the left: drag thumbnails to reorder them,
@@ -186,7 +196,15 @@ Once assets are registered, the browser is a free-form canvas:
   compatible. Escape cancels a drag without changing the saved order. The slide
   number field jumps directly to a slide; Page Up/Down navigates the deck.
 - Cmd/Ctrl+D duplicates the selected object, or the current slide when nothing
-  is selected. Native text editing and its clipboard shortcuts remain separate.
+  is selected. Cmd/Ctrl+A selects every object on the slide; Cmd/Ctrl+C, X, and V
+  copy, cut, and paste selected objects. Native text editing and its clipboard
+  shortcuts remain separate.
+- Cmd/Ctrl+Z undoes deck edits; Cmd/Ctrl+Shift+Z (or Ctrl+Y) redoes them. The
+  toolbar buttons show whether either action is available. Multi-object moves,
+  pastes, deletions, and slide templates each undo as one step. While typing in
+  a text box, the browser keeps its native text undo; after finishing, the text
+  edit session is one deck-history step. The last 50 deck steps are held in
+  memory for the current session, not stored in the presentation JSON.
 - The slide rail and properties panel can be collapsed for more canvas space.
   **Fit** follows available space; manual zoom stays fixed until Fit is selected
   again. Both use the same logical canvas dimensions as presentation mode.
@@ -194,9 +212,12 @@ Once assets are registered, the browser is a free-form canvas:
   the same element used for presentation, so typography, wrapping, and spacing do
   not change between design and present modes; font, size, color, weight,
   alignment, and line height are set in the inspector, and double-clicking a text
-  block edits it in place. The text style menu also includes a polished code
+  block edits it in place. In a list, Tab indents the current bullet and
+  Shift+Tab moves it back out. The text style menu also includes a polished code
   treatment with monospace defaults, code-safe whitespace, and an editor-like
   frame that is preserved in present mode and frozen exports.
+- Image blocks have non-destructive crop controls for each side. Crop values
+  persist in editable JSON and render in slide previews and frozen HTML.
 - A theme sets accent, background, foreground, and font once for the whole deck.
 - Edits stream over Server-Sent Events, so multiple tabs and changing data stay
   in sync.

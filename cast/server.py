@@ -7,6 +7,8 @@ Routes:
   GET    /deck              download the editable presentation document
   POST   /deck/save         save to the configured workspace file
   PUT    /deck              replace the editable presentation document
+  POST   /deck/undo         undo the latest deck edit
+  POST   /deck/redo         redo the latest undone edit
   GET    /render            ?figure=F[&table=T] -> {ok, plotly} | {ok:false, error}
   GET    /render_table      ?table=T[&limit=N] -> table preview data
   GET    /render_html       ?html=H -> {ok, html} | {ok:false, error}
@@ -31,7 +33,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
@@ -149,6 +151,18 @@ def upload_deck(body: dict) -> JSONResponse:
     return JSONResponse({"ok": True, "slides": len(registry.get_deck()["slides"])})
 
 
+@app.post("/deck/undo")
+def undo_deck() -> JSONResponse:
+    changed = registry.undo()
+    return JSONResponse({"ok": changed, "history": registry.history_state()})
+
+
+@app.post("/deck/redo")
+def redo_deck() -> JSONResponse:
+    changed = registry.redo()
+    return JSONResponse({"ok": changed, "history": registry.history_state()})
+
+
 @app.get("/render")
 def render(figure: str, table: Optional[str] = None) -> JSONResponse:
     return JSONResponse(asdict(registry.apply(figure, table)))
@@ -186,18 +200,18 @@ def render_table(table: str, limit: int = 200) -> JSONResponse:
 
 
 @app.post("/slides")
-def add_slide() -> JSONResponse:
-    return JSONResponse({"id": registry.add_slide()})
+def add_slide(history_group: Optional[str] = Header(default=None, alias="X-Cast-History-Group")) -> JSONResponse:
+    return JSONResponse({"id": registry.add_slide(history_group=history_group)})
 
 
 @app.delete("/slides/{sid}")
-def remove_slide(sid: str) -> JSONResponse:
-    return JSONResponse({"ok": registry.remove_slide(sid)})
+def remove_slide(sid: str, history_group: Optional[str] = Header(default=None, alias="X-Cast-History-Group")) -> JSONResponse:
+    return JSONResponse({"ok": registry.remove_slide(sid, history_group=history_group)})
 
 
 @app.post("/slides/{sid}/duplicate")
-def duplicate_slide(sid: str) -> JSONResponse:
-    duplicate_sid = registry.duplicate_slide(sid)
+def duplicate_slide(sid: str, history_group: Optional[str] = Header(default=None, alias="X-Cast-History-Group")) -> JSONResponse:
+    duplicate_sid = registry.duplicate_slide(sid, history_group=history_group)
     if duplicate_sid is None:
         return JSONResponse(
             {"ok": False, "error": f"Unknown slide '{sid}'."}, status_code=404
@@ -206,12 +220,12 @@ def duplicate_slide(sid: str) -> JSONResponse:
 
 
 @app.patch("/slides/order")
-def reorder_slides(body: OrderIn) -> JSONResponse:
-    return JSONResponse({"ok": registry.reorder_slides(body.order)})
+def reorder_slides(body: OrderIn, history_group: Optional[str] = Header(default=None, alias="X-Cast-History-Group")) -> JSONResponse:
+    return JSONResponse({"ok": registry.reorder_slides(body.order, history_group=history_group)})
 
 
 @app.post("/slides/{sid}/blocks")
-def add_block(sid: str, body: BlockIn) -> JSONResponse:
+def add_block(sid: str, body: BlockIn, history_group: Optional[str] = Header(default=None, alias="X-Cast-History-Group")) -> JSONResponse:
     bid = registry.add_block(
         sid,
         body.type,
@@ -226,23 +240,24 @@ def add_block(sid: str, body: BlockIn) -> JSONResponse:
         y=body.y,
         w=body.w,
         h=body.h,
+        history_group=history_group,
     )
     return JSONResponse({"id": bid})
 
 
 @app.patch("/blocks/{bid}")
-def patch_block(bid: str, body: BlockPatch) -> JSONResponse:
-    return JSONResponse({"ok": registry.update_block(bid, **body.model_dump(exclude_none=True))})
+def patch_block(bid: str, body: BlockPatch, history_group: Optional[str] = Header(default=None, alias="X-Cast-History-Group")) -> JSONResponse:
+    return JSONResponse({"ok": registry.update_block(bid, history_group=history_group, **body.model_dump(exclude_none=True))})
 
 
 @app.delete("/blocks/{bid}")
-def delete_block(bid: str) -> JSONResponse:
-    return JSONResponse({"ok": registry.remove_block(bid)})
+def delete_block(bid: str, history_group: Optional[str] = Header(default=None, alias="X-Cast-History-Group")) -> JSONResponse:
+    return JSONResponse({"ok": registry.remove_block(bid, history_group=history_group)})
 
 
 @app.patch("/theme")
-def patch_theme(body: ThemeIn) -> JSONResponse:
-    registry.set_theme(**body.model_dump(exclude_none=True))
+def patch_theme(body: ThemeIn, history_group: Optional[str] = Header(default=None, alias="X-Cast-History-Group")) -> JSONResponse:
+    registry.set_theme(history_group=history_group, **body.model_dump(exclude_none=True))
     return JSONResponse({"ok": True})
 
 

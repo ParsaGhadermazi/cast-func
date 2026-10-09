@@ -246,20 +246,47 @@ function shapeCommonAttrs(st, fillDefault=true) {{
   const dash = strokeDash(st);
   return 'fill="'+escAttr(fill)+'" stroke="'+escAttr(stroke)+'" stroke-width="'+sw+'" '+(dash ? 'stroke-dasharray="'+dash+'"' : '')+' stroke-linecap="'+escAttr(st.lineCap || "round")+'" stroke-linejoin="'+escAttr(st.lineJoin || "round")+'" vector-effect="non-scaling-stroke"';
 }}
+function smoothShapePath(points, closed) {{
+  if (points.length < 3) return points.map(([x,y],i)=>(i ? "L" : "M")+x+" "+y).join(" ");
+  const path = ["M"+points[0][0]+" "+points[0][1]];
+  const segments = closed ? points.length : points.length-1;
+  for (let i=0; i<segments; i++) {{
+    const p0 = points[closed ? (i-1+points.length)%points.length : Math.max(0,i-1)];
+    const p1 = points[i], p2 = points[(i+1)%points.length];
+    const p3 = points[closed ? (i+2)%points.length : Math.min(points.length-1,i+2)];
+    const c1 = [p1[0]+(p2[0]-p0[0])/6, p1[1]+(p2[1]-p0[1])/6];
+    const c2 = [p2[0]-(p3[0]-p1[0])/6, p2[1]-(p3[1]-p1[1])/6];
+    path.push("C"+c1[0]+" "+c1[1]+" "+c2[0]+" "+c2[1]+" "+p2[0]+" "+p2[1]);
+  }}
+  if (closed) path.push("Z");
+  return path.join(" ");
+}}
 function shapeSvg(st) {{
   const shape = st.shape || "rect";
+  const custom = Array.isArray(st.points) && st.points.length >= (LINE_SHAPES.has(shape) ? 2 : 3)
+    && st.points.length <= 64 && st.points.every(p=>Array.isArray(p) && p.length === 2
+      && p.every(v=>typeof v === "number" && Number.isFinite(v)));
+  const points = custom ? st.points.map(([x,y])=>[
+    Math.max(0,Math.min(100,x)), Math.max(0,Math.min(100,y)),
+  ]) : null;
   const fill = st.fill || "#5b8cff";
   const stroke = (st.stroke && st.stroke !== "transparent" && st.stroke !== "none") ? st.stroke : fill;
   const sw = Number(st.strokeWidth || (LINE_SHAPES.has(shape) ? 4 : 0));
   const dash = strokeDash(st);
   const common = shapeCommonAttrs(st, !LINE_SHAPES.has(shape));
   let inner = "";
-  if (shape === "ellipse") inner = '<ellipse cx="50" cy="50" rx="48" ry="48" '+common+'/>';
+  if (points && !LINE_SHAPES.has(shape)) inner = st.smooth
+    ? '<path d="'+smoothShapePath(points, true)+'" '+common+'/>'
+    : '<polygon points="'+points.map(p=>p.join(",")).join(" ")+'" '+common+'/>';
+  else if (shape === "ellipse") inner = '<ellipse cx="50" cy="50" rx="48" ry="48" '+common+'/>';
   else if (shape === "round-rect") inner = '<rect x="1" y="1" width="98" height="98" rx="'+Number(st.radius ?? 16)+'" ry="'+Number(st.radius ?? 16)+'" '+common+'/>';
   else if (shape === "rect") inner = '<rect x="1" y="1" width="98" height="98" rx="'+Number(st.radius || 0)+'" ry="'+Number(st.radius || 0)+'" '+common+'/>';
   else if (shape === "line" || shape === "arrow-line") {{
     const marker = shape === "arrow-line" ? '<defs><marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L10,5 L0,10 Z" fill="'+escAttr(stroke)+'"/></marker></defs>' : "";
-    inner = marker + '<line x1="4" y1="50" x2="96" y2="50" stroke="'+escAttr(stroke)+'" stroke-width="'+sw+'" '+(dash ? 'stroke-dasharray="'+dash+'"' : '')+' stroke-linecap="'+escAttr(st.lineCap || "round")+'" vector-effect="non-scaling-stroke" '+(shape === "arrow-line" ? 'marker-end="url(#arrowhead)"' : '')+'/>';
+    const linePoints = points || [[4,50],[96,50]];
+    const path = st.smooth ? smoothShapePath(linePoints, false)
+      : linePoints.map(([x,y],i)=>(i ? "L" : "M")+x+" "+y).join(" ");
+    inner = marker + '<path d="'+path+'" fill="none" stroke="'+escAttr(stroke)+'" stroke-width="'+sw+'" '+(dash ? 'stroke-dasharray="'+dash+'"' : '')+' stroke-linecap="'+escAttr(st.lineCap || "round")+'" stroke-linejoin="round" vector-effect="non-scaling-stroke" '+(shape === "arrow-line" ? 'marker-end="url(#arrowhead)"' : '')+'/>';
   }} else inner = '<polygon points="'+(POLY_POINTS[shape] || POLY_POINTS.triangle)+'" '+common+'/>';
   return '<svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style="display:block;overflow:visible">'+inner+'</svg>';
 }}
@@ -370,8 +397,42 @@ function render() {{
         img.draggable = false;
         img.style.width = "100%"; img.style.height = "100%";
         img.style.objectFit = st.fit || "contain";
-        img.style.borderRadius = (st.radius || 0) + "px";
+        body.style.borderRadius = (st.radius || 0) + "px";
         img.style.imageRendering = st.rendering || "auto";
+        const crop = st.crop || {{}};
+        const left = Math.max(0, Math.min(.8, Number(crop.left) || 0));
+        const top = Math.max(0, Math.min(.8, Number(crop.top) || 0));
+        const right = Math.max(0, Math.min(.9-left, Number(crop.right) || 0));
+        const bottom = Math.max(0, Math.min(.9-top, Number(crop.bottom) || 0));
+        if (left || right || top || bottom) {{
+          body.style.position = "relative";
+          body.style.overflow = "hidden";
+          const applyCrop = () => {{
+            const frameWidth = body.clientWidth, frameHeight = body.clientHeight;
+            if (!img.naturalWidth || !img.naturalHeight || !frameWidth || !frameHeight) return;
+            const cropWidth = 1-left-right, cropHeight = 1-top-bottom;
+            let fullWidth, fullHeight;
+            if (st.fit === "fill") {{
+              fullWidth = frameWidth/cropWidth;
+              fullHeight = frameHeight/cropHeight;
+            }} else {{
+              const scale = (st.fit === "cover" ? Math.max : Math.min)(
+                frameWidth/(img.naturalWidth*cropWidth),
+                frameHeight/(img.naturalHeight*cropHeight),
+              );
+              fullWidth = img.naturalWidth*scale;
+              fullHeight = img.naturalHeight*scale;
+            }}
+            img.style.position = "absolute";
+            img.style.left = ((frameWidth-fullWidth*cropWidth)/2-fullWidth*left)+"px";
+            img.style.top = ((frameHeight-fullHeight*cropHeight)/2-fullHeight*top)+"px";
+            img.style.width = fullWidth+"px";
+            img.style.height = fullHeight+"px";
+            img.style.objectFit = "fill";
+          }};
+          img.addEventListener("load", applyCrop);
+          requestAnimationFrame(applyCrop);
+        }}
         body.append(img);
         body.classList.add("image");
       }} else if (b.error) {{

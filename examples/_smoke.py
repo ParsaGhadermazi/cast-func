@@ -207,6 +207,16 @@ assert fig_block["figure"] == "trend" and fig_block["table"] == "monthly"
 assert next(b for b in slide1["blocks"] if b["id"] == html_bid)["html"] == "note"
 assert next(b for b in slide1["blocks"] if b["id"] == table_bid)["table"] == "monthly"
 assert next(b for b in slide1["blocks"] if b["id"] == image_bid)["image"] == "raster_pixel"
+assert client.patch(
+    f"/blocks/{image_bid}",
+    json={"style": {"fit": "contain", "crop": {"left": 0.2, "right": 0, "top": 0, "bottom": 0}}},
+).json()["ok"]
+shape_bid = client.post(
+    f"/slides/{sid1}/blocks",
+    json={"type": "shape", "x": 0.3, "y": 0.3, "w": 0.2, "h": 0.2,
+          "style": {"shape": "rect", "fill": "#5b8cff",
+                    "points": [[1, 1], [99, 1], [88, 99], [1, 99]]}},
+).json()["id"]
 # blocks get an increasing z so later ones stack on top
 assert next(b for b in slide1["blocks"] if b["id"] == txt_bid)["z"] > fig_block["z"]
 
@@ -227,7 +237,7 @@ assert txt_block["style"]["textVariant"] == "code"
 assert client.delete(f"/blocks/{html_bid}").json()["ok"] is True
 st = client.get("/state").json()
 slide1 = next(s for s in st["slides"] if s["id"] == sid1)
-assert {b["id"] for b in slide1["blocks"]} == {fig_bid, txt_bid, table_bid, image_bid}
+assert {b["id"] for b in slide1["blocks"]} == {fig_bid, txt_bid, table_bid, image_bid, shape_bid}
 
 # ----- deck: theme -------------------------------------------------------- #
 assert client.patch("/theme", json={"accent": "#ff0000", "bg": "#222222"}).json()["ok"]
@@ -242,6 +252,12 @@ deck_document = downloaded_deck.json()
 assert deck_document["format"] == "cast.presentation"
 assert deck_document["schema_version"] == 1
 assert [slide["id"] for slide in deck_document["slides"]] == [sid2, sid1]
+assert next(
+    b for s in deck_document["slides"] for b in s["blocks"] if b["id"] == image_bid
+)["style"]["crop"]["left"] == 0.2
+assert next(
+    b for s in deck_document["slides"] for b in s["blocks"] if b["id"] == shape_bid
+)["style"]["points"][2] == [88, 99]
 
 # Invalid/future documents are rejected transactionally.
 before_invalid_load = client.get("/state").json()
@@ -260,6 +276,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
     exported = export_path.read_text(encoding="utf-8")
     assert "renderFrozenTable" in exported and '"title": "Monthly"' in exported
     assert "data:image/png;base64," in exported
+    assert '"crop": {"left": 0.2' in exported
+    assert '"points": [[1, 1], [99, 1], [88, 99], [1, 99]]' in exported
     assert "code-text" in exported and '"textVariant": "code"' in exported
 
     editable_path = Path(tmpdir) / "deck.cast.json"
@@ -275,7 +293,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     assert [s["id"] for s in restored["slides"]] == [sid2, sid1]
     assert restored["theme"]["accent"] == "#ff0000"
     restored_slide = next(s for s in restored["slides"] if s["id"] == sid1)
-    assert {b["id"] for b in restored_slide["blocks"]} == {fig_bid, txt_bid, table_bid, image_bid}
+    assert {b["id"] for b in restored_slide["blocks"]} == {fig_bid, txt_bid, table_bid, image_bid, shape_bid}
 
     # Loading also restores id sequences, so future edits cannot collide.
     sid3 = client.post("/slides").json()["id"]
@@ -284,7 +302,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     next_bid = client.post(
         f"/slides/{sid1}/blocks", json={"type": "text", "content": "<p>new</p>"}
     ).json()["id"]
-    assert next_bid == "b6"
+    assert next_bid == "b7"
     assert client.delete(f"/blocks/{next_bid}").json()["ok"] is True
 
     # Slide duplication inserts a deep copy immediately after its source.

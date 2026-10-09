@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import copy
 import io
 import json
 import math
@@ -166,6 +167,47 @@ class Registry:
         self._theme: dict = dict(DEFAULT_THEME)
         self._slide_seq = 0
         self._block_seq = 0
+        self._undo: List[tuple] = []
+        self._redo: List[tuple] = []
+        self._last_history_group: Optional[str] = None
+
+    def _deck_snapshot(self) -> tuple:
+        return (copy.deepcopy(self._theme), copy.deepcopy(self._slides),
+                self._slide_seq, self._block_seq)
+
+    def _record_deck_change(self, history_group: Optional[str] = None) -> None:
+        if not history_group or history_group != self._last_history_group or not self._undo:
+            self._undo.append(self._deck_snapshot())
+            if len(self._undo) > 50:
+                self._undo.pop(0)
+        self._last_history_group = history_group
+        self._redo.clear()
+
+    def history_state(self) -> dict:
+        with self._lock:
+            return {"can_undo": bool(self._undo), "can_redo": bool(self._redo)}
+
+    def undo(self) -> bool:
+        with self._lock:
+            if not self._undo:
+                return False
+            self._redo.append(self._deck_snapshot())
+            self._theme, self._slides, self._slide_seq, self._block_seq = self._undo.pop()
+            self._last_history_group = None
+            self._bump()
+            return True
+
+    def redo(self) -> bool:
+        with self._lock:
+            if not self._redo:
+                return False
+            self._undo.append(self._deck_snapshot())
+            if len(self._undo) > 50:
+                self._undo.pop(0)
+            self._theme, self._slides, self._slide_seq, self._block_seq = self._redo.pop()
+            self._last_history_group = None
+            self._bump()
+            return True
 
     @property
     def version(self) -> int:
@@ -356,8 +398,9 @@ class Registry:
             return TableRenderResult(ok=False, error=f"{type(exc).__name__}: {exc}")
 
     # ----- deck: slides ------------------------------------------------- #
-    def add_slide(self, index: Optional[int] = None) -> str:
+    def add_slide(self, index: Optional[int] = None, history_group: Optional[str] = None) -> str:
         with self._lock:
+            self._record_deck_change(history_group)
             self._slide_seq += 1
             sid = f"s{self._slide_seq}"
             slide = Slide(id=sid)
@@ -368,16 +411,19 @@ class Registry:
             self._bump()
             return sid
 
-    def remove_slide(self, sid: str) -> bool:
+    def remove_slide(self, sid: str, history_group: Optional[str] = None) -> bool:
         with self._lock:
             before = len(self._slides)
+            if not any(slide.id == sid for slide in self._slides):
+                return False
+            self._record_deck_change(history_group)
             self._slides = [s for s in self._slides if s.id != sid]
             removed = len(self._slides) != before
             if removed:
                 self._bump()
             return removed
 
-    def duplicate_slide(self, sid: str) -> Optional[str]:
+    def duplicate_slide(self, sid: str, history_group: Optional[str] = None) -> Optional[str]:
         with self._lock:
             source_index = next(
                 (index for index, slide in enumerate(self._slides) if slide.id == sid),
@@ -386,6 +432,7 @@ class Registry:
             if source_index is None:
                 return None
 
+            self._record_deck_change(history_group)
             self._slide_seq += 1
             duplicate_sid = f"s{self._slide_seq}"
             duplicate_blocks = []
@@ -405,13 +452,16 @@ class Registry:
             self._bump()
             return duplicate_sid
 
-    def reorder_slides(self, order: List[str]) -> bool:
+    def reorder_slides(self, order: List[str], history_group: Optional[str] = None) -> bool:
         with self._lock:
             by_id = {s.id: s for s in self._slides}
             if len(order) != len(by_id) or len(set(order)) != len(order):
                 return False
             if set(order) != set(by_id):
                 return False
+            if order == [slide.id for slide in self._slides]:
+                return True
+            self._record_deck_change(history_group)
             self._slides = [by_id[sid] for sid in order]
             self._bump()
             return True
@@ -424,11 +474,12 @@ class Registry:
                     return block
         return None
 
-    def add_block(self, sid: str, type: str, **kwargs) -> Optional[str]:
+    def add_block(self, sid: str, type: str, history_group: Optional[str] = None, **kwargs) -> Optional[str]:
         with self._lock:
             slide = next((s for s in self._slides if s.id == sid), None)
             if slide is None:
                 return None
+            self._record_deck_change(history_group)
             self._block_seq += 1
             bid = f"b{self._block_seq}"
             top_z = max((b.z for s in self._slides for b in s.blocks), default=0)
@@ -439,33 +490,40 @@ class Registry:
             self._bump()
             return bid
 
-    def update_block(self, bid: str, **kwargs) -> bool:
+    def update_block(self, bid: str, history_group: Optional[str] = None, **kwargs) -> bool:
         with self._lock:
             block = self._find_block(bid)
             if block is None:
                 return False
-            for k, v in kwargs.items():
-                if k in _BLOCK_FIELDS and v is not None:
-                    setattr(block, k, v)
+            changed = {k: v for k, v in kwargs.items()
+                       if k in _BLOCK_FIELDS and v is not None and getattr(block, k) != v}
+            if not changed:
+                return True
+            self._record_deck_change(history_group)
+            for k, v in changed.items():
+                setattr(block, k, v)
             self._bump()
             return True
 
-    def remove_block(self, bid: str) -> bool:
+    def remove_block(self, bid: str, history_group: Optional[str] = None) -> bool:
         with self._lock:
             for slide in self._slides:
-                n = len(slide.blocks)
-                slide.blocks = [b for b in slide.blocks if b.id != bid]
-                if len(slide.blocks) != n:
+                if any(block.id == bid for block in slide.blocks):
+                    self._record_deck_change(history_group)
+                    slide.blocks = [b for b in slide.blocks if b.id != bid]
                     self._bump()
                     return True
             return False
 
     # ----- deck: theme -------------------------------------------------- #
-    def set_theme(self, **kwargs) -> None:
+    def set_theme(self, history_group: Optional[str] = None, **kwargs) -> None:
         with self._lock:
-            for k, v in kwargs.items():
-                if k in DEFAULT_THEME and v is not None:
-                    self._theme[k] = v
+            changed = {k: v for k, v in kwargs.items()
+                       if k in DEFAULT_THEME and v is not None and self._theme[k] != v}
+            if not changed:
+                return
+            self._record_deck_change(history_group)
+            self._theme.update(changed)
             self._bump()
 
     # ----- state -------------------------------------------------------- #
@@ -498,12 +556,16 @@ class Registry:
             self._slides = slides
             self._slide_seq = slide_seq
             self._block_seq = block_seq
+            self._undo.clear()
+            self._redo.clear()
+            self._last_history_group = None
             self._bump()
 
     def get_state(self) -> dict:
         with self._lock:
             return {
                 "version": self._version,
+                "history": {"can_undo": bool(self._undo), "can_redo": bool(self._redo)},
                 "figures": [
                     {"name": f.name, "title": f.title}
                     for f in self._figures.values()
