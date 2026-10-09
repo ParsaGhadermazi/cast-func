@@ -48,7 +48,22 @@ from .templates import APP_CSS, APP_JS, PAGE
 
 app = FastAPI(title="cast")
 _STATIC = Path(__file__).with_name("static")
-app.mount("/static", StaticFiles(directory=_STATIC), name="static")
+
+
+class _RevalidatedStaticFiles(StaticFiles):
+    """Static files the browser must revalidate (cheap 304s via ETag).
+
+    Bundle names are stable and chunks import each other by plain URL, so a
+    cache-busting query string on the entry would load the app twice.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", _RevalidatedStaticFiles(directory=_STATIC), name="static")
 
 
 class BlockIn(BaseModel):
@@ -110,11 +125,14 @@ _NEXT_PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>cast</title>
 <link rel="icon" href="data:," />
-<link rel="stylesheet" href="./static/editor/editor.css?v={stamp}" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Playfair+Display:wght@400;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="./static/editor/editor.css" />
 </head>
 <body>
 <div id="root"></div>
-<script type="module" src="./static/editor/editor.js?v={stamp}"></script>
+<script type="module" src="./static/editor/editor.js"></script>
 </body>
 </html>
 """
@@ -128,9 +146,7 @@ def next_editor() -> HTMLResponse:
             "The new editor has not been built. Run <code>npm run build</code> in frontend/.",
             status_code=503,
         )
-    # Bundle names are stable, so the build time busts browser caches.
-    stamp = int(bundle.stat().st_mtime)
-    return HTMLResponse(_NEXT_PAGE.format(stamp=stamp), headers={"Cache-Control": "no-store"})
+    return HTMLResponse(_NEXT_PAGE, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/app.css")

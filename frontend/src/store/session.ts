@@ -6,6 +6,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import { api, stateToRawDeck, type Assets, type ChangeMarker } from "../api/client";
+import { createUiStore, type UiStore } from "../editor/uiStore";
 import { decodeDeck } from "../model/normalize";
 import { createDocStore, type DocStore } from "./docStore";
 import { SyncClient, type SyncStatus } from "./sync";
@@ -28,6 +29,7 @@ export interface Session {
   doc: DocStore;
   assets: StoreApi<Assets>;
   status: StoreApi<StatusState>;
+  ui: UiStore;
   sync: SyncClient;
   close(): void;
 }
@@ -123,10 +125,14 @@ export async function startSession(): Promise<Session> {
   };
   window.addEventListener("beforeunload", beforeUnload);
 
+  const ui = createUiStore();
+  ui.getState().goToSlide(initial.deck.slides, 0);
+
   return {
     doc,
     assets,
     status,
+    ui,
     sync,
     close() {
       events.close();

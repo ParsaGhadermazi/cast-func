@@ -144,6 +144,24 @@ M3 and M4 come right after the foundation because they are the priorities. M1 re
     - 36 Vitest tests (`npm test`).
     - Checked in the browser: migration save-back, local → server, server → tab within 400 ms, and undo sync.
 
+- **M2 done.**
+  - Rendering:
+    - `render/SlideView.tsx` is the one slide renderer, used by the canvas, the thumbnails and present mode, with modes `edit`, `present` and `thumb`.
+    - There are renderers for all six block types.
+    - Shape geometry, crop math and text style are pure modules with tests.
+    - `render/assets.ts` caches loads by asset version, so a Python data refresh re-renders only the affected blocks. Checked live: the table and Plotly chart updated each time the data function re-ran, without refetching the deck.
+  - Editor chrome:
+    - Slide rail with real thumbnails.
+    - Stage with CSS-zoom Fit and manual zoom.
+    - Viewbar.
+    - Present mode with fullscreen and keyboard controls. Exiting lands the editor on the last presented slide.
+  - Fixed by design:
+    - Each SVG gets its own arrowhead marker id.
+    - Opacity looks the same everywhere.
+    - "Reload" works (the iframe is keyed by a reload counter).
+  - Found and fixed: a cache-busting `?v=` on the entry script made the lazily loaded Plotly chunk import a second copy of the app. Static files are now served with `Cache-Control: no-cache` and plain URLs.
+  - Tests: 51 Vitest tests.
+
 ## Decisions (confirmed)
 
 1. **The built bundle is committed**, so installing from git works without Node.

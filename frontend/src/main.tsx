@@ -1,9 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { App } from "./app/App";
 import { SessionContext } from "./app/SessionContext";
-import "./app/app.css";
+import { Editor } from "./editor/Editor";
+import "./editor/editor.css";
+import { AssetSourceContext, liveAssetSource } from "./render/assets";
+import "./render/render.css";
 import { startSession } from "./store/session";
 
 const root = createRoot(document.getElementById("root")!);
@@ -15,7 +17,9 @@ startSession()
     root.render(
       <StrictMode>
         <SessionContext.Provider value={session}>
-          <App />
+          <AssetSourceContext.Provider value={liveAssetSource(session.assets)}>
+            <Editor />
+          </AssetSourceContext.Provider>
         </SessionContext.Provider>
       </StrictMode>,
     );
