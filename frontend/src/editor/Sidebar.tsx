@@ -39,6 +39,8 @@ import {
 } from "./operations";
 import { ShapeSection } from "../inspector/ShapeSection";
 import { TextSection } from "../inspector/TextSection";
+import { FigureSection, HtmlSection, ImageSection, TableSection } from "../inspector/AssetSections";
+import { SlidePanel } from "../inspector/SlidePanel";
 import { deleteSelection, duplicateSelection } from "./shortcuts";
 import { boxOf, type Box } from "./transform";
 
@@ -157,17 +159,8 @@ function PropertiesPanel() {
   const { slide, index } = useCurrentSlide();
   if (!slide) return <p className="muted">No slides yet.</p>;
   const selected = slide.blocks.filter((block) => selection.includes(block.id));
-  if (!selected.length) {
-    return (
-      <section className="panel-section">
-        <h3>Slide {index + 1}</h3>
-        <p className="muted">
-          {slide.blocks.length} object{slide.blocks.length === 1 ? "" : "s"}. Click an object to select it, drag on empty
-          space to select several, or press Tab to step through them.
-        </p>
-      </section>
-    );
-  }
+  if (!selected.length) return <SlidePanel slide={slide} index={index} />;
+  const single = selected.length === 1 ? selected[0]! : null;
   return (
     <>
       {selected.length > 1 && <p className="panel-summary">{selected.length} objects selected</p>}
@@ -175,6 +168,10 @@ function PropertiesPanel() {
       {selected.every((block) => block.type === "text") && (
         <TextSection slideId={slide.id} blocks={selected} editing={editing?.kind === "text"} />
       )}
+      {single?.type === "image" && <ImageSection slideId={slide.id} block={single} />}
+      {single?.type === "table" && <TableSection slideId={slide.id} block={single} />}
+      {single?.type === "figure" && <FigureSection slideId={slide.id} block={single} />}
+      {single?.type === "html" && <HtmlSection slideId={slide.id} block={single} />}
       <ArrangeSection slideId={slide.id} ids={selected.map((block) => block.id)} />
       {selected.length === 1 && <GeometrySection slideId={slide.id} block={selected[0]!} />}
     </>

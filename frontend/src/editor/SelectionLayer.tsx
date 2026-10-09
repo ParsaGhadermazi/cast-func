@@ -153,7 +153,8 @@ export function SelectionLayer({ slide, zoom, editingId }: { slide: Slide; zoom:
   const outline = pointsEditing ? single : line;
   const frame = gestureFrame ?? selectionFrame(boxes);
   const textEditing = editing?.kind === "text" && single?.id === editing.id ? single : null;
-  const showHandles = !outline && !textEditing && (gesture === null || gesture === "resize" || gesture === "rotate");
+  const cropping = editing?.kind === "crop" && single?.id === editing.id ? single : null;
+  const showHandles = !outline && !textEditing && !cropping && (gesture === null || gesture === "resize" || gesture === "rotate");
 
   return (
     <div className="selection-layer" style={{ width: SLIDE_WIDTH * zoom, height: SLIDE_HEIGHT * zoom }}>
@@ -184,6 +185,17 @@ export function SelectionLayer({ slide, zoom, editingId }: { slide: Slide; zoom:
           <Frame frame={frame} zoom={zoom} showHandles={showHandles} />
         )}
         {pointsEditing && <div className="points-frame" style={boxStyle(boxes[0]!, zoom)} />}
+        {cropping && (
+          <div className="crop-frame" style={boxStyle(boxes[0]!, zoom)} title="Drag the edges to crop; Enter or Escape when done">
+            {HANDLES.map((handle) => {
+              const [hx, hy] = handleSides(handle);
+              return (
+                <div key={handle} className={`crop-handle ${hx && hy ? "corner" : hx ? "vertical" : "horizontal"}`} data-crop={handle}
+                  style={{ left: `${((hx + 1) / 2) * 100}%`, top: `${((hy + 1) / 2) * 100}%`, cursor: handleCursor(handle, boxes[0]!.rotation) }} />
+              );
+            })}
+          </div>
+        )}
         {textEditing && (
           <TextToolbar
             block={textEditing}

@@ -16,7 +16,8 @@
  * screen rectangle and the zoom, so handles keep their screen size.
  */
 
-import { SLIDE_HEIGHT, SLIDE_WIDTH, type ShapeKind, type ShapePoint } from "../model/types";
+import { SLIDE_HEIGHT, SLIDE_WIDTH, type CropBox, type ShapeKind, type ShapePoint } from "../model/types";
+import { normalizedCrop } from "../render/crop";
 import { editableShapePoints, isLineShape } from "../render/shapes";
 import type { Session } from "../store/session";
 import { resolveSlideIndex } from "./uiStore";
@@ -40,6 +41,10 @@ import {
   centerOf,
   clampTranslation,
   guidesFor,
+  handleSides,
+  MIN_H,
+  MIN_W,
+  rotate,
   rectFromPoints,
   rectsIntersect,
   resizeBox,
@@ -64,6 +69,7 @@ export type PointerTarget =
   | { kind: "rotate" }
   | { kind: "vertex"; index: number }
   | { kind: "insert"; index: number }
+  | { kind: "crop"; handle: Handle }
   | { kind: "background" };
 
 const DRAG_THRESHOLD = 3; // screen pixels
@@ -103,6 +109,7 @@ type Active =
   | { kind: "rotate"; start: Point; boxes: Map<string, Box>; frame: Box; pivot: Point }
   | { kind: "marquee"; start: Point; base: string[] }
   | { kind: "draw"; start: Point; shape: ShapeKind | "text"; id: string; targets: SnapTargets }
+  | { kind: "crop"; id: string; handle: Handle; start: Point; box: Box; crop: CropBox }
   | VertexDrag;
 
 export class CanvasInteraction {
@@ -198,6 +205,15 @@ export class CanvasInteraction {
     const start = this.toSlide(event);
     const additive = event.shiftKey || event.metaKey || event.ctrlKey;
     this.pointerId = event.pointerId;
+
+    if (target.kind === "crop") {
+      const editing = ui.editing;
+      const block = editing?.kind === "crop" ? slide.blocks.find((candidate) => candidate.id === editing.id) : undefined;
+      if (!block) return;
+      this.active = { kind: "crop", id: block.id, handle: target.handle, start, box: boxOf(block), crop: normalizedCrop(block.style) };
+      this.beginGesture("resize");
+      return;
+    }
 
     if (target.kind === "vertex" || target.kind === "insert") {
       const block = this.outlineBlock();
@@ -317,6 +333,45 @@ export class CanvasInteraction {
     const doc = this.session.doc.getState();
     const slideId = this.slide()?.id;
     if (!slideId) return;
+
+    if (active.kind === "crop") {
+      // Crop like a mask: the dragged edge follows the pointer and the picture
+      // stays where it is, so the box shrinks (or grows back) with the crop.
+      const box = active.box;
+      const center = centerOf(box);
+      const local = rotate(point, -box.rotation, center);
+      const startLocal = rotate(active.start, -box.rotation, center);
+      const [hx, hy] = handleSides(active.handle);
+      const c = active.crop;
+      const perX = (1 - c.left - c.right) / box.w; // crop fraction per slide pixel
+      const perY = (1 - c.top - c.bottom) / box.h;
+      let w = box.w + hx * (local.x - startLocal.x);
+      let h = box.h + hy * (local.y - startLocal.y);
+      // Never uncrop past the image edge, never collapse the box.
+      const maxW = box.w + (hx > 0 ? c.right : c.left) / perX;
+      const maxH = box.h + (hy > 0 ? c.bottom : c.top) / perY;
+      w = hx ? Math.max(MIN_W, Math.min(w, maxW)) : box.w;
+      h = hy ? Math.max(MIN_H, Math.min(h, maxH)) : box.h;
+      const next = { ...c };
+      if (hx > 0) next.right = c.right - (w - box.w) * perX;
+      if (hx < 0) next.left = c.left - (w - box.w) * perX;
+      if (hy > 0) next.bottom = c.bottom - (h - box.h) * perY;
+      if (hy < 0) next.top = c.top - (h - box.h) * perY;
+      const clean = normalizedCrop({ crop: { left: Math.max(0, next.left), top: Math.max(0, next.top), right: Math.max(0, next.right), bottom: Math.max(0, next.bottom) } });
+      // Keep the opposite edges fixed on screen.
+      const cx = hx ? -hx * (box.w / 2) + hx * (w / 2) : 0;
+      const cy = hy ? -hy * (box.h / 2) + hy * (h / 2) : 0;
+      const world = rotate({ x: center.x + cx, y: center.y + cy }, box.rotation, center);
+      const nextBox = { x: world.x - w / 2, y: world.y - h / 2, w, h, rotation: box.rotation };
+      const id = active.id;
+      doc.updateGesture((draft) => {
+        const block = slideById(draft, slideId)?.blocks.find((candidate) => candidate.id === id);
+        if (!block) return;
+        applyBox(block, nextBox);
+        block.style.crop = clean;
+      });
+      return;
+    }
 
     if (active.kind === "vertex") {
       if (!active.moved) {
@@ -569,6 +624,8 @@ export class CanvasInteraction {
       this.finishCreate(active.id);
     } else if (active.kind === "vertex") {
       if (this.session.doc.getState().gestureActive) this.session.doc.getState().commitGesture(active.label);
+    } else if (active.kind === "crop") {
+      this.session.doc.getState().commitGesture("Crop image");
     } else if (active.kind === "move" && active.duplicateOf) this.session.doc.getState().commitGesture("Duplicate");
     else if (active.kind === "move" || active.kind === "resize" || active.kind === "rotate") {
       this.session.doc.getState().commitGesture(labels[active.kind]);
@@ -582,7 +639,7 @@ export class CanvasInteraction {
     if (!active) return false;
     this.active = null;
     this.pointerId = null;
-    if (active.kind === "move" || active.kind === "resize" || active.kind === "rotate" || active.kind === "draw" || active.kind === "vertex") {
+    if (active.kind === "move" || active.kind === "resize" || active.kind === "rotate" || active.kind === "draw" || active.kind === "vertex" || active.kind === "crop") {
       this.session.doc.getState().cancelGesture();
       if (active.kind === "move" && active.duplicateOf) this.session.ui.getState().select(active.duplicateOf);
     }

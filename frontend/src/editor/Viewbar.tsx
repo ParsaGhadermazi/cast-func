@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Grid3x3, Magnet, Minus, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Grid3x3, Magnet, Minus, PanelLeft, PanelRight, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useSession, useUi } from "../app/SessionContext";
@@ -10,6 +10,8 @@ export function Viewbar() {
   const fit = useUi((state) => state.fit);
   const grid = useUi((state) => state.grid);
   const snap = useUi((state) => state.snap);
+  const railOpen = useUi((state) => state.railOpen);
+  const sidebarOpen = useUi((state) => state.sidebarOpen);
   const { index, count } = useCurrentSlide();
   const nav = useSlideNavigation();
   const [draft, setDraft] = useState<string | null>(null);
@@ -19,6 +21,10 @@ export function Viewbar() {
   return (
     <footer className="viewbar">
       <div className="group">
+        <button type="button" className={`icon toggle${railOpen ? " on" : ""}`} aria-label="Slides panel" aria-pressed={railOpen}
+          title="Show or hide the slides" onClick={() => ui.togglePanel("rail")}>
+          <PanelLeft size={16} />
+        </button>
         <button type="button" className="icon" aria-label="Previous slide" disabled={index <= 0} onClick={() => nav.step(-1)}>
           <ChevronLeft size={16} />
         </button>
@@ -61,6 +67,10 @@ export function Viewbar() {
         </button>
         <button type="button" className={`toggle${fit ? " on" : ""}`} aria-pressed={fit} onClick={ui.enableFit}>
           Fit
+        </button>
+        <button type="button" className={`icon toggle${sidebarOpen ? " on" : ""}`} aria-label="Inspector panel" aria-pressed={sidebarOpen}
+          title="Show or hide properties and layers" onClick={() => ui.togglePanel("sidebar")}>
+          <PanelRight size={16} />
         </button>
       </div>
     </footer>

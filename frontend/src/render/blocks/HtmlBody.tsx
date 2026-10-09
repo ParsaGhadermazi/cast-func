@@ -1,9 +1,10 @@
 import type { Block } from "../../model/types";
-import { useAssetSource, useAssetTitle, useAssetVersion, useLoaded } from "../assets";
+import { useAssetSource, useAssetTitle, useAssetVersion, useHtmlReload, useLoaded } from "../assets";
 import type { RenderMode } from "../SlideView";
 
 /** Custom notebook HTML in a sandboxed iframe (no same-origin access). */
-export function HtmlBody({ block, mode, reloadKey = 0 }: { block: Block; mode: RenderMode; reloadKey?: number }) {
+export function HtmlBody({ block, mode }: { block: Block; mode: RenderMode }) {
+  const reloadKey = useHtmlReload(block.id);
   const source = useAssetSource();
   const version = useAssetVersion("html", block.html);
   const title = useAssetTitle("html", block.html);

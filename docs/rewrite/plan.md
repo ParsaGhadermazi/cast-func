@@ -240,6 +240,29 @@ M3 and M4 come right after the foundation because they are the priorities. M1 re
   - `editor/richText.ts` is tested: list indent/outdent, styling exactly the selected characters, stripping inline overrides, link normalisation.
   - Tests: 96 Vitest tests.
 
+- **M6 done.**
+  - Slides (`editor/slides.ts`, tested):
+    - Add after the current slide, blank or from a template (title, text + figure, split, quote).
+    - Duplicate with fresh ids; delete with an undo hint.
+    - Pointer-driven drag reorder in the rail, with a drop line, auto-scroll and Escape to cancel. Alt+↑/↓ moves a slide; Delete removes the focused slide.
+    - Cmd+D with nothing selected duplicates the slide. All of these are undoable.
+  - Insert menu:
+    - One click for each notebook figure (with a data choice), table, HTML widget and image, plus Upload.
+    - Images go in at their own aspect ratio, as do dropped and pasted image files.
+  - Inspectors:
+    - Image: source, upload, URL, fit, "match image shape" (SVG viewBox aware), crop, rendering, corners, opacity, fill, alt.
+    - Table: data, rows, text size, compact, stripes, row numbers, colours.
+    - Figure: plot and data.
+    - HTML: object and a Reload that actually reloads.
+    - Slide: background override and duplicate/delete.
+    - Presentation theme: preset cards plus colours and font. The same editor is in the toolbar's Theme popover.
+  - On-canvas crop (double-click an image): mask-style, so the edge follows the pointer, the picture stays put, and the box resizes. One undo step; Enter or Escape finishes.
+  - Open and Download in the top bar. Open is decoded, sanitised and undoable.
+  - Right-click menu: context-aware edit/cut/copy/paste/duplicate/delete/z-order, or select all/new slide, with keyboard navigation.
+  - Shortcuts sheet (`?` or the keyboard button).
+  - Panel toggles for the rail and inspector, which become overlays on narrow screens. An empty-deck state offers title or blank slides.
+  - Tests: 100 Vitest tests.
+
 ## Decisions (confirmed)
 
 1. **The built bundle is committed**, so installing from git works without Node.

@@ -1,4 +1,4 @@
-import { ChevronDown, MousePointer2, Type } from "lucide-react";
+import { ChevronDown, MousePointer2, Palette, Type } from "lucide-react";
 
 import { useSession, useUi } from "../app/SessionContext";
 import { ShapeSvg } from "../render/blocks/ShapeBody";
@@ -6,6 +6,8 @@ import { SHAPE_OPTIONS, isLineShape } from "../render/shapes";
 import type { ShapeKind } from "../model/types";
 import { Popover } from "../ui/Popover";
 import { useCurrentSlide } from "./hooks";
+import { InsertMenu } from "./InsertMenu";
+import { ThemeEditor } from "../inspector/SlidePanel";
 
 const SHAPE_KEYS: Partial<Record<ShapeKind, string>> = { rect: "R", ellipse: "O", line: "L", "arrow-line": "Shift+L" };
 
@@ -71,6 +73,11 @@ export function Toolbar() {
           )}
         </Popover>
       </div>
+      <span className="divider" />
+      <InsertMenu />
+      <Popover label="Theme" title="Presentation theme" width={300} buttonClassName="toggle" button={<><Palette size={16} /> <span>Theme</span></>}>
+        {() => <ThemeEditor />}
+      </Popover>
     </div>
   );
 }

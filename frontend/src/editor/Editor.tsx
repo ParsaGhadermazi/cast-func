@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { useSession, useStatus, useUi } from "../app/SessionContext";
+import { ContextMenu } from "./ContextMenu";
 import { CanvasInteraction } from "./interaction";
 import { PresentOverlay } from "./PresentOverlay";
 import { useEditorShortcuts } from "./shortcuts";
@@ -38,9 +39,13 @@ export function Editor() {
   (window as unknown as { __castInteraction: CanvasInteraction }).__castInteraction = interaction;
   useEditorShortcuts(session, interaction);
   useEffect(trackTextSelection, []);
+  // Narrow screens start with the side panels closed; they open as overlays.
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 760px)").matches) session.ui.setState({ railOpen: false, sidebarOpen: false });
+  }, [session]);
 
   return (
-    <div className="editor">
+    <div className={`editor${railOpen ? " rail-open" : ""}${sidebarOpen ? " sidebar-open" : ""}`}>
       <Topbar />
       <Toolbar />
       <div className="workspace">
@@ -50,6 +55,7 @@ export function Editor() {
       </div>
       <Viewbar />
       {presenting && <PresentOverlay />}
+      <ContextMenu />
       <Notices />
     </div>
   );

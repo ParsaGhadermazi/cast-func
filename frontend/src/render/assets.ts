@@ -7,7 +7,8 @@
  */
 
 import { createContext, useContext, useEffect, useState, useSyncExternalStore } from "react";
-import type { StoreApi } from "zustand/vanilla";
+import { useStore } from "zustand";
+import { createStore as createVanillaStore, type StoreApi } from "zustand/vanilla";
 
 import { api, type Assets } from "../api/client";
 
@@ -168,3 +169,12 @@ export function useLoaded<T>(request: string | null, version: string, load: () =
   // Show the previous result while a newer version loads, to avoid flicker.
   return state.key === key || state.value.status === "done" ? state.value : { status: "loading" };
 }
+
+/** Per-block reload counters: bumping one restarts that HTML block's iframe. */
+export const htmlReloads = createVanillaStore<Record<string, number>>()(() => ({}));
+
+export function reloadHtmlBlock(id: string): void {
+  htmlReloads.setState((state) => ({ [id]: (state[id] ?? 0) + 1 }));
+}
+
+export const useHtmlReload = (id: string): number => useStore(htmlReloads, (state) => state[id] ?? 0);

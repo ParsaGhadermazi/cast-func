@@ -10,7 +10,7 @@ import { useEffect } from "react";
 
 import { plainTextToHtml } from "../model/sanitize";
 import { editableShapePoints } from "../render/shapes";
-import { SLIDE_HEIGHT, SLIDE_WIDTH, type Block } from "../model/types";
+import type { Block } from "../model/types";
 import type { Session } from "../store/session";
 import { saveWorkspace } from "./commands";
 import { isTypingTarget, useSlideNavigation } from "./hooks";
@@ -27,7 +27,8 @@ import {
   stackOrder,
   type BlockPayload,
 } from "./operations";
-import { enterEditing } from "./commands";
+import { duplicateSlideCommand, enterEditing } from "./commands";
+import { insertImageFiles } from "./insert";
 import { moveVertex, pointsToSlide, removeVertex } from "./shapeEdit";
 import { applyBox, boxOf } from "./transform";
 import { resolveSlideIndex, type Tool } from "./uiStore";
@@ -79,33 +80,11 @@ function emptyBlock(type: Block["type"]): Omit<BlockPayload, "x" | "y" | "w" | "
   return { type, figure: null, table: null, html: null, image: null, content: null, markdown: null, style: {} };
 }
 
-/** Pasted plain text becomes a text box; a pasted image becomes an image block. */
-async function payloadsFromForeignClipboard(data: DataTransfer): Promise<BlockPayload[]> {
-  const file = Array.from(data.files).find((item) => item.type.startsWith("image/"));
-  if (file) {
-    const src = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    const size = await new Promise<{ width: number; height: number }>((resolve) => {
-      const image = new Image();
-      image.onload = () => resolve({ width: image.naturalWidth || 400, height: image.naturalHeight || 300 });
-      image.onerror = () => resolve({ width: 400, height: 300 });
-      image.src = src;
-    });
-    // Fit within 60% of the slide, keep the aspect ratio, centre it.
-    const scale = Math.min((0.6 * SLIDE_WIDTH) / size.width, (0.6 * SLIDE_HEIGHT) / size.height, 1);
-    const w = (size.width * scale) / SLIDE_WIDTH;
-    const h = (size.height * scale) / SLIDE_HEIGHT;
-    return [{ ...emptyBlock("image"), x: (1 - w) / 2, y: (1 - h) / 2, w, h, style: { src, fit: "contain", alt: file.name } }];
-  }
+/** Pasted plain text becomes a text box (pasted image files are handled by `insertImageFiles`). */
+function textPayloadFromClipboard(data: DataTransfer): BlockPayload[] {
   const text = data.getData("text/plain").trim();
-  if (text) {
-    return [{ ...emptyBlock("text"), x: 0.1, y: 0.15, w: 0.5, h: 0.3, content: plainTextToHtml(text), style: { fontSize: 24 } }];
-  }
-  return [];
+  if (!text) return [];
+  return [{ ...emptyBlock("text"), x: 0.1, y: 0.15, w: 0.5, h: 0.3, content: plainTextToHtml(text), style: { fontSize: 24 } }];
 }
 
 /** Single-key tools, as in Figma and Keynote. */
@@ -177,6 +156,9 @@ export function useEditorShortcuts(session: Session, interaction: CanvasInteract
           applyBox(block, result.box);
           block.style.points = result.points;
         }, { mergeKey: `point:${pointBlock.id}:${point}`, mergeWindowMs: 1000 });
+      } else if (event.key === "Enter" && (ui.editing?.kind === "crop" || ui.editing?.kind === "points")) {
+        event.preventDefault();
+        ui.stopEditing();
       } else if (event.key === "Enter" && ui.selection.length === 1 && slide) {
         const block = slide.blocks.find((candidate) => candidate.id === ui.selection[0]);
         if (block) {
@@ -198,7 +180,9 @@ export function useEditorShortcuts(session: Session, interaction: CanvasInteract
         if (slide) ui.select(stackOrder(slide));
       } else if (mod && key === "d") {
         event.preventDefault();
-        duplicateSelection(session);
+        // With nothing selected, Cmd+D duplicates the slide.
+        if (ui.selection.length) duplicateSelection(session);
+        else duplicateSlideCommand(session);
       } else if ((event.key === "Delete" || event.key === "Backspace") && ui.selection.length) {
         event.preventDefault();
         deleteSelection(session);
@@ -219,6 +203,9 @@ export function useEditorShortcuts(session: Session, interaction: CanvasInteract
         const at = ui.primary ? order.indexOf(ui.primary) : -1;
         const next = order[(at + (event.shiftKey ? -1 : 1) + order.length) % order.length]!;
         ui.select([next]);
+      } else if (event.key === "?" ) {
+        event.preventDefault();
+        document.querySelector<HTMLButtonElement>('button[aria-label="Keyboard shortcuts"]')?.click();
       } else if (event.key === "PageDown") {
         event.preventDefault();
         nav.step(1);
@@ -249,7 +236,9 @@ export function useEditorShortcuts(session: Session, interaction: CanvasInteract
       const payloads = ours.startsWith("[") || ours.startsWith(CLIPBOARD_TEXT_PREFIX) ? parseBlocks(ours) : [];
       event.preventDefault();
       if (payloads.length) return pastePayloads(session, payloads);
-      void payloadsFromForeignClipboard(data).then((foreign) => pastePayloads(session, foreign));
+      const files = Array.from(data.files);
+      if (files.some((file) => file.type.startsWith("image/"))) return void insertImageFiles(session, files);
+      pastePayloads(session, textPayloadFromClipboard(data), "Paste text");
     };
 
     window.addEventListener("keydown", onKey);
