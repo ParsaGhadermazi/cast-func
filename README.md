@@ -12,10 +12,14 @@ Build live, notebook-backed presentations from Python functions.
 
 *The cast editor: slide thumbnails, a live Plotly figure selected with its inspector, and a compact toolbar. Decorated notebook functions supply the live assets.*
 
-**Project note:** This project is experimental. The browser editor was rewritten
-in TypeScript (`frontend/`) around a single document model, so editing happens
-instantly in the browser and syncs to Python in the background. Expect the
-occasional rough edge, and please report it.
+> [!WARNING]
+> **This project is vibe coded.** Nearly all of the code, including the
+> TypeScript editor in `frontend/`, was written by an AI coding assistant
+> (Claude) from high-level direction, and checked mainly by automated tests
+> and by trying it in a browser rather than by line-by-line expert review.
+> It is experimental: expect rough edges and behaviour that changes between
+> versions, and review it yourself before relying on it for anything
+> important. Bug reports are welcome.
 
 ## What it does
 
@@ -325,6 +329,8 @@ in [`docs/rewrite/`](docs/rewrite/).
 
 ## Notes and limitations
 
+- The project is vibe coded (see the note at the top), so treat it as
+  experimental software.
 - One workspace is active per Python process; constructing another `Cast`
   switches the editor to that file while keeping the registered assets.
 - `save` and `load` store references to decorated assets, not the Python behind
