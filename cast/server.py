@@ -2,18 +2,21 @@
 
 Routes:
   GET    /                  the editor/presenter shell
+  GET    /next              the new editor (TypeScript build in static/editor/)
+  GET    /static/...        bundled static assets
   GET    /app.css /app.js   client assets
   GET    /state             assets + deck + theme
   GET    /deck              download the editable presentation document
   POST   /deck/save         save to the configured workspace file
   PUT    /deck              replace the editable presentation document
+  POST   /deck/sync         {base_rev, client_id, document} -> {ok, rev} | 409
   POST   /deck/undo         undo the latest deck edit
   POST   /deck/redo         redo the latest undone edit
   GET    /render            ?figure=F[&table=T] -> {ok, plotly} | {ok:false, error}
   GET    /render_table      ?table=T[&limit=N] -> table preview data
   GET    /render_html       ?html=H -> {ok, html} | {ok:false, error}
   GET    /render_image      ?image=I -> original image bytes
-  GET    /events            Server-Sent Events; emits on version change
+  GET    /events            Server-Sent Events; pushes {version, deck_rev, deck_origin}
 
   POST   /slides                       add a slide -> {id}
   POST   /slides/{sid}/duplicate       duplicate a slide -> {id}
@@ -28,6 +31,7 @@ Routes:
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from dataclasses import asdict
 from pathlib import Path
@@ -35,6 +39,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Header
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .registry import registry
@@ -42,6 +47,8 @@ from .persistence import save as save_workspace, workspace_path
 from .templates import APP_CSS, APP_JS, PAGE
 
 app = FastAPI(title="cast")
+_STATIC = Path(__file__).with_name("static")
+app.mount("/static", StaticFiles(directory=_STATIC), name="static")
 
 
 class BlockIn(BaseModel):
@@ -74,6 +81,12 @@ class BlockPatch(BaseModel):
     style: Optional[dict] = None
 
 
+class SyncIn(BaseModel):
+    base_rev: int
+    client_id: Optional[str] = None
+    document: dict
+
+
 class OrderIn(BaseModel):
     order: List[str]
 
@@ -88,6 +101,36 @@ class ThemeIn(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse(PAGE)
+
+
+_NEXT_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cast</title>
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="./static/editor/editor.css?v={stamp}" />
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="./static/editor/editor.js?v={stamp}"></script>
+</body>
+</html>
+"""
+
+
+@app.get("/next", response_class=HTMLResponse)
+def next_editor() -> HTMLResponse:
+    bundle = _STATIC / "editor" / "editor.js"
+    if not bundle.exists():
+        return HTMLResponse(
+            "The new editor has not been built. Run <code>npm run build</code> in frontend/.",
+            status_code=503,
+        )
+    # Bundle names are stable, so the build time busts browser caches.
+    stamp = int(bundle.stat().st_mtime)
+    return HTMLResponse(_NEXT_PAGE.format(stamp=stamp), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/app.css")
@@ -107,8 +150,12 @@ def app_icons() -> Response:
 
 
 @app.get("/state")
-def state() -> JSONResponse:
+def state(deck: bool = True) -> JSONResponse:
     payload = registry.get_state()
+    if not deck:
+        # Asset-only refresh: the browser already owns the document.
+        payload.pop("slides", None)
+        payload.pop("theme", None)
     workspace = workspace_path()
     payload["workspace"] = {
         "configured": workspace is not None,
@@ -149,6 +196,15 @@ def upload_deck(body: dict) -> JSONResponse:
     except ValueError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     return JSONResponse({"ok": True, "slides": len(registry.get_deck()["slides"])})
+
+
+@app.post("/deck/sync")
+def sync_deck(body: SyncIn) -> JSONResponse:
+    try:
+        result = registry.sync_deck(body.document, body.base_rev, body.client_id)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    return JSONResponse(result, status_code=409 if result.get("conflict") else 200)
 
 
 @app.post("/deck/undo")
@@ -263,16 +319,42 @@ def patch_theme(body: ThemeIn, history_group: Optional[str] = Header(default=Non
 
 @app.get("/events")
 async def events() -> StreamingResponse:
-    async def stream():
-        last = -1
-        while True:
-            current = registry.version
-            if current != last:
-                last = current
-                yield f"data: {current}\n\n"
-            await asyncio.sleep(0.3)
+    """Push a change marker whenever the registry changes.
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    The registry notifies from worker threads, so the listener only flips an
+    asyncio.Event on this loop. Bursts of changes collapse into one message.
+    """
+    loop = asyncio.get_running_loop()
+    changed = asyncio.Event()
+
+    def notify() -> None:
+        try:
+            loop.call_soon_threadsafe(changed.set)
+        except RuntimeError:  # loop already closed (server shutting down)
+            pass
+
+    async def stream():
+        unsubscribe = registry.subscribe(notify)
+        try:
+            yield f"data: {json.dumps(registry.change_marker())}\n\n"
+            # Starlette cancels this generator when the client disconnects;
+            # the finally block then unsubscribes.
+            while True:
+                try:
+                    await asyncio.wait_for(changed.wait(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                changed.clear()
+                yield f"data: {json.dumps(registry.change_marker())}\n\n"
+        finally:
+            unsubscribe()
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 _server_thread: "threading.Thread | None" = None

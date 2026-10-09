@@ -52,6 +52,7 @@ class Figure:
     name: str
     title: str
     fn: Callable[[pl.DataFrame], object]
+    version: int = 0
 
 
 @dataclass
@@ -170,6 +171,13 @@ class Registry:
         self._undo: List[tuple] = []
         self._redo: List[tuple] = []
         self._last_history_group: Optional[str] = None
+        # ``deck_rev`` counts document changes only; ``version`` counts every
+        # change (assets too). ``deck_origin`` names the editor tab that made
+        # the latest deck change so it can ignore its own echo.
+        self._deck_rev = 0
+        self._deck_origin: Optional[str] = None
+        self._assets_version = 0
+        self._listeners: List[Callable[[], None]] = []
 
     def _deck_snapshot(self) -> tuple:
         return (copy.deepcopy(self._theme), copy.deepcopy(self._slides),
@@ -194,7 +202,7 @@ class Registry:
             self._redo.append(self._deck_snapshot())
             self._theme, self._slides, self._slide_seq, self._block_seq = self._undo.pop()
             self._last_history_group = None
-            self._bump()
+            self._bump_deck()
             return True
 
     def redo(self) -> bool:
@@ -206,7 +214,7 @@ class Registry:
                 self._undo.pop(0)
             self._theme, self._slides, self._slide_seq, self._block_seq = self._redo.pop()
             self._last_history_group = None
-            self._bump()
+            self._bump_deck()
             return True
 
     @property
@@ -216,12 +224,48 @@ class Registry:
 
     def _bump(self) -> int:
         self._version += 1
+        for listener in list(self._listeners):
+            try:
+                listener()
+            except Exception:  # a broken subscriber must never break an edit
+                pass
         return self._version
+
+    def _bump_deck(self, origin: Optional[str] = None) -> int:
+        self._deck_rev += 1
+        self._deck_origin = origin
+        return self._bump()
+
+    def _bump_assets(self) -> int:
+        self._assets_version = self._version + 1
+        return self._bump()
+
+    def subscribe(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` after every change. It runs under the registry
+        lock, so it must not block or call back into the registry."""
+        with self._lock:
+            self._listeners.append(listener)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                if listener in self._listeners:
+                    self._listeners.remove(listener)
+
+        return unsubscribe
+
+    def change_marker(self) -> dict:
+        with self._lock:
+            return {
+                "version": self._version,
+                "assets_version": self._assets_version,
+                "deck_rev": self._deck_rev,
+                "deck_origin": self._deck_origin,
+            }
 
     # ----- assets ------------------------------------------------------- #
     def register_table_factory(self, name: str, title: str, fn: Callable) -> None:
         with self._lock:
-            v = self._bump()
+            v = self._bump_assets()
             self._tables[name] = Table(
                 name=name, title=title, fn=fn, dataframe=None, version=v
             )
@@ -231,7 +275,7 @@ class Registry:
     ) -> None:
         frame = _coerce_dataframe(name, value)
         with self._lock:
-            v = self._bump()
+            v = self._bump_assets()
             current = self._tables.get(name)
             if current is None:
                 self._tables[name] = Table(
@@ -257,17 +301,17 @@ class Registry:
 
     def register_figure(self, name: str, title: str, fn: Callable) -> None:
         with self._lock:
-            self._bump()
-            self._figures[name] = Figure(name=name, title=title, fn=fn)
+            v = self._bump_assets()
+            self._figures[name] = Figure(name=name, title=title, fn=fn, version=v)
 
     def register_html(self, name: str, title: str, fn: Callable) -> None:
         with self._lock:
-            v = self._bump()
+            v = self._bump_assets()
             self._htmls[name] = Html(name=name, title=title, fn=fn, version=v)
 
     def register_image(self, name: str, title: str, alt: str, fn: Callable) -> None:
         with self._lock:
-            v = self._bump()
+            v = self._bump_assets()
             self._images[name] = ImageAsset(
                 name=name, title=title, alt=alt, fn=fn, version=v
             )
@@ -278,7 +322,7 @@ class Registry:
         """Refresh an image after its decorated notebook function is called."""
         result = _coerce_image(value, name)
         with self._lock:
-            v = self._bump()
+            v = self._bump_assets()
             current = self._images.get(name)
             if current is None:
                 self._images[name] = ImageAsset(
@@ -408,7 +452,7 @@ class Registry:
                 self._slides.append(slide)
             else:
                 self._slides.insert(max(0, index), slide)
-            self._bump()
+            self._bump_deck()
             return sid
 
     def remove_slide(self, sid: str, history_group: Optional[str] = None) -> bool:
@@ -420,7 +464,7 @@ class Registry:
             self._slides = [s for s in self._slides if s.id != sid]
             removed = len(self._slides) != before
             if removed:
-                self._bump()
+                self._bump_deck()
             return removed
 
     def duplicate_slide(self, sid: str, history_group: Optional[str] = None) -> Optional[str]:
@@ -449,7 +493,7 @@ class Registry:
                 blocks=duplicate_blocks,
             )
             self._slides.insert(source_index + 1, duplicate)
-            self._bump()
+            self._bump_deck()
             return duplicate_sid
 
     def reorder_slides(self, order: List[str], history_group: Optional[str] = None) -> bool:
@@ -463,7 +507,7 @@ class Registry:
                 return True
             self._record_deck_change(history_group)
             self._slides = [by_id[sid] for sid in order]
-            self._bump()
+            self._bump_deck()
             return True
 
     # ----- deck: blocks ------------------------------------------------- #
@@ -487,7 +531,7 @@ class Registry:
                       if k in _BLOCK_FIELDS and v is not None}
             block = Block(id=bid, type=type, z=top_z + 1, **fields)
             slide.blocks.append(block)
-            self._bump()
+            self._bump_deck()
             return bid
 
     def update_block(self, bid: str, history_group: Optional[str] = None, **kwargs) -> bool:
@@ -502,7 +546,7 @@ class Registry:
             self._record_deck_change(history_group)
             for k, v in changed.items():
                 setattr(block, k, v)
-            self._bump()
+            self._bump_deck()
             return True
 
     def remove_block(self, bid: str, history_group: Optional[str] = None) -> bool:
@@ -511,7 +555,7 @@ class Registry:
                 if any(block.id == bid for block in slide.blocks):
                     self._record_deck_change(history_group)
                     slide.blocks = [b for b in slide.blocks if b.id != bid]
-                    self._bump()
+                    self._bump_deck()
                     return True
             return False
 
@@ -524,7 +568,7 @@ class Registry:
                 return
             self._record_deck_change(history_group)
             self._theme.update(changed)
-            self._bump()
+            self._bump_deck()
 
     # ----- state -------------------------------------------------------- #
     def get_deck(self) -> dict:
@@ -544,6 +588,32 @@ class Registry:
                 ],
             }
 
+    def sync_deck(self, document: dict, base_rev: int, origin: Optional[str]) -> dict:
+        """Replace the deck with a browser-owned document.
+
+        The browser sends its whole document together with the ``deck_rev`` it
+        was based on. A stale ``base_rev`` means another tab or Python changed
+        the deck first; the caller gets ``conflict`` and must refetch.
+        Raises ``ValueError`` if the document is invalid.
+        """
+        theme, slides = _decode_deck(document)
+        slide_seq = _max_sequence("s", [slide.id for slide in slides])
+        block_seq = _max_sequence(
+            "b", [block.id for slide in slides for block in slide.blocks]
+        )
+        with self._lock:
+            if base_rev != self._deck_rev:
+                return {"ok": False, "conflict": True, "rev": self._deck_rev}
+            # Keeps the legacy editor's server-side undo usable during the
+            # transition; removed together with that editor.
+            self._record_deck_change(None)
+            self._theme = theme
+            self._slides = slides
+            self._slide_seq = max(self._slide_seq, slide_seq)
+            self._block_seq = max(self._block_seq, block_seq)
+            self._bump_deck(origin)
+            return {"ok": True, "rev": self._deck_rev}
+
     def load_deck(self, document: dict) -> None:
         """Replace the editable deck after validating the complete document."""
         theme, slides = _decode_deck(document)
@@ -559,15 +629,18 @@ class Registry:
             self._undo.clear()
             self._redo.clear()
             self._last_history_group = None
-            self._bump()
+            self._bump_deck()
 
     def get_state(self) -> dict:
         with self._lock:
             return {
                 "version": self._version,
+                "assets_version": self._assets_version,
+                "deck_rev": self._deck_rev,
+                "deck_origin": self._deck_origin,
                 "history": {"can_undo": bool(self._undo), "can_redo": bool(self._redo)},
                 "figures": [
-                    {"name": f.name, "title": f.title}
+                    {"name": f.name, "title": f.title, "version": f.version}
                     for f in self._figures.values()
                 ],
                 "htmls": [
