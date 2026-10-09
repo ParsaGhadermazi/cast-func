@@ -377,3 +377,8 @@ export function setShapeKind(deck: DraftDeck, slideId: string, ids: string[], ki
     }
   }
 }
+
+/** A new, empty text box (it is removed again if left empty). */
+export function textPayload(rect: { x: number; y: number; w: number; h: number }): BlockPayload {
+  return { ...emptyPayload("text", rect), content: "<p><br></p>", style: { fontSize: 24 } };
+}

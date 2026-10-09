@@ -45,6 +45,7 @@ export function Topbar() {
       </button>
       <button type="button" className="primary" disabled={!count}
         onClick={() => {
+          session.ui.getState().stopEditing();
           session.ui.getState().startPresent(session.ui.getState().currentSlideId, index);
           // Fullscreen needs this click's user gesture; it may be refused inside a notebook iframe.
           void document.documentElement.requestFullscreen?.().catch(() => undefined);

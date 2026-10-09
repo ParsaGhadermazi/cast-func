@@ -19,7 +19,7 @@ export type Tool = { kind: "select" } | { kind: "shape"; shape: ShapeKind } | { 
 
 /** An object being edited in place (one at a time). */
 export type Editing =
-  | { kind: "text"; id: string }
+  | { kind: "text"; id: string; caret?: { x: number; y: number }; selectAll?: boolean }
   | { kind: "points"; id: string; point: number | null }
   | { kind: "crop"; id: string };
 

@@ -23,6 +23,7 @@ import { resolveSlideIndex } from "./uiStore";
 import {
   allBlockIds,
   defaultShapeSize,
+  textPayload,
   insertBlocks,
   nextIds,
   setBoxes,
@@ -77,8 +78,8 @@ interface Pressing {
   onClick: (() => void) | null;
   alt: boolean;
   shift: boolean;
-  /** Set when the shape tool is active: dragging draws this shape. */
-  draw: ShapeKind | null;
+  /** Set when the shape or text tool is active: dragging draws this. */
+  draw: ShapeKind | "text" | null;
 }
 
 interface VertexDrag {
@@ -101,7 +102,7 @@ type Active =
   | { kind: "resize"; start: Point; handle: Handle; boxes: Map<string, Box>; frame: Box; targets: SnapTargets }
   | { kind: "rotate"; start: Point; boxes: Map<string, Box>; frame: Box; pivot: Point }
   | { kind: "marquee"; start: Point; base: string[] }
-  | { kind: "draw"; start: Point; shape: ShapeKind; id: string; targets: SnapTargets }
+  | { kind: "draw"; start: Point; shape: ShapeKind | "text"; id: string; targets: SnapTargets }
   | VertexDrag;
 
 export class CanvasInteraction {
@@ -229,7 +230,7 @@ export class CanvasInteraction {
       return;
     }
 
-    if (ui.tool.kind === "shape" && target.kind !== "handle" && target.kind !== "rotate") {
+    if (ui.tool.kind !== "select" && target.kind !== "handle" && target.kind !== "rotate") {
       const targets = this.targetsExcluding([]);
       this.active = {
         kind: "pressing",
@@ -239,7 +240,7 @@ export class CanvasInteraction {
         onClick: null,
         alt: event.altKey,
         shift: event.shiftKey,
-        draw: ui.tool.shape,
+        draw: ui.tool.kind === "shape" ? ui.tool.shape : "text",
       };
       return;
     }
@@ -352,7 +353,9 @@ export class CanvasInteraction {
       let end = snapping ? this.snapPoint(point, active.targets) : point;
       const accent = this.session.doc.getState().doc.theme.accent;
       let payload;
-      if (isLineShape(active.shape)) {
+      if (active.shape === "text") {
+        payload = textPayload(normalized({ ...rectFromPoints(active.start, end), rotation: 0 }));
+      } else if (isLineShape(active.shape)) {
         if (event.shiftKey) end = snapToAngle(active.start, end);
         const { box, points } = lineBetween(active.start, end);
         payload = shapePayload(active.shape, accent, normalized(box), points);
@@ -492,7 +495,7 @@ export class CanvasInteraction {
     if (duplicateOf) this.session.ui.getState().select(ids);
   }
 
-  private startDraw(pressing: Pressing, shape: ShapeKind): void {
+  private startDraw(pressing: Pressing, shape: ShapeKind | "text"): void {
     const id = nextIds(allBlockIds(this.session.doc.getState().doc), "b", 1)[0]!;
     this.active = { kind: "draw", start: pressing.start, shape, id, targets: this.targetsExcluding([]) };
     this.beginGesture("resize");
@@ -516,6 +519,26 @@ export class CanvasInteraction {
     this.finishCreate(created[0]);
   }
 
+  /** A click with the text tool places a text box there and starts typing. */
+  private placeText(at: Point): void {
+    const slide = this.slide();
+    if (!slide) return;
+    const w = 0.33;
+    const h = 0.12;
+    // The click marks where the first line starts (inside the box padding).
+    const rect = {
+      x: Math.min(Math.max((at.x - 14) / SLIDE_WIDTH, 0), 1 - w),
+      y: Math.min(Math.max((at.y - 22) / SLIDE_HEIGHT, 0), 1 - h),
+      w,
+      h,
+    };
+    let created: string[] = [];
+    this.session.doc.getState().transact("Add text", (draft) => {
+      created = insertBlocks(draft, slide.id, [textPayload(rect)], 0);
+    });
+    if (created[0]) this.session.ui.getState().startEditing({ kind: "text", id: created[0] });
+  }
+
   private finishCreate(id: string | undefined): void {
     const ui = this.session.ui.getState();
     ui.setTool({ kind: "select" });
@@ -535,9 +558,13 @@ export class CanvasInteraction {
     this.active = null;
     this.pointerId = null;
     const labels = { move: "Move", resize: "Resize", rotate: "Rotate" } as const;
-    if (active.kind === "pressing" && active.draw) this.placeShape(active.start, active.draw);
+    if (active.kind === "pressing" && active.draw === "text") this.placeText(active.start);
+    else if (active.kind === "pressing" && active.draw && active.draw !== "text") this.placeShape(active.start, active.draw);
     else if (active.kind === "pressing") active.onClick?.();
-    else if (active.kind === "draw") {
+    else if (active.kind === "draw" && active.shape === "text") {
+      this.session.doc.getState().commitGesture("Add text");
+      this.session.ui.getState().startEditing({ kind: "text", id: active.id });
+    } else if (active.kind === "draw") {
       this.session.doc.getState().commitGesture("Add shape");
       this.finishCreate(active.id);
     } else if (active.kind === "vertex") {

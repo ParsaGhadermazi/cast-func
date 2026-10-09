@@ -38,6 +38,7 @@ import {
   type LayerMove,
 } from "./operations";
 import { ShapeSection } from "../inspector/ShapeSection";
+import { TextSection } from "../inspector/TextSection";
 import { deleteSelection, duplicateSelection } from "./shortcuts";
 import { boxOf, type Box } from "./transform";
 
@@ -152,6 +153,7 @@ function GeometrySection({ slideId, block }: { slideId: string; block: Block }) 
 
 function PropertiesPanel() {
   const selection = useUi((state) => state.selection);
+  const editing = useUi((state) => state.editing);
   const { slide, index } = useCurrentSlide();
   if (!slide) return <p className="muted">No slides yet.</p>;
   const selected = slide.blocks.filter((block) => selection.includes(block.id));
@@ -170,6 +172,9 @@ function PropertiesPanel() {
     <>
       {selected.length > 1 && <p className="panel-summary">{selected.length} objects selected</p>}
       {selected.every((block) => block.type === "shape") && <ShapeSection slideId={slide.id} blocks={selected} />}
+      {selected.every((block) => block.type === "text") && (
+        <TextSection slideId={slide.id} blocks={selected} editing={editing?.kind === "text"} />
+      )}
       <ArrangeSection slideId={slide.id} ids={selected.map((block) => block.id)} />
       {selected.length === 1 && <GeometrySection slideId={slide.id} block={selected[0]!} />}
     </>

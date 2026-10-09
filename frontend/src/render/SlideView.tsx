@@ -51,10 +51,13 @@ function BlockBody({ block, mode }: { block: Block; mode: RenderMode }) {
   }
 }
 
-export const BlockView = memo(function BlockView({ block, mode }: { block: Block; mode: RenderMode }) {
+/** Lets the editor replace one block's body (e.g. with an in-place text editor). */
+export type BodyOverride = (block: Block) => ReactNode | undefined;
+
+export const BlockView = memo(function BlockView({ block, mode, override }: { block: Block; mode: RenderMode; override?: BodyOverride }) {
   return (
     <div className={`block ${block.type}`} data-bid={block.id} style={blockFrameStyle(block)}>
-      <BlockBody block={block} mode={mode} />
+      {override?.(block) ?? <BlockBody block={block} mode={mode} />}
     </div>
   );
 });
@@ -66,6 +69,7 @@ export interface SlideViewProps {
   /** Extra layers drawn above the blocks (selection chrome, guides). */
   children?: ReactNode;
   className?: string;
+  override?: BodyOverride;
 }
 
 export function slideSurfaceStyle(slide: Slide, theme: Theme): CSSProperties {
@@ -79,11 +83,11 @@ export function slideSurfaceStyle(slide: Slide, theme: Theme): CSSProperties {
   };
 }
 
-export const SlideView = memo(function SlideView({ slide, theme, mode, children, className }: SlideViewProps) {
+export const SlideView = memo(function SlideView({ slide, theme, mode, children, className, override }: SlideViewProps) {
   return (
     <div className={`slide-surface mode-${mode}${className ? ` ${className}` : ""}`} style={slideSurfaceStyle(slide, theme)}>
       {slide.blocks.map((block) => (
-        <BlockView key={block.id} block={block} mode={mode} />
+        <BlockView key={block.id} block={block} mode={mode} override={override} />
       ))}
       {children}
     </div>

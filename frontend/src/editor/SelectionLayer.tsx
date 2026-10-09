@@ -15,6 +15,7 @@ import { useUi } from "../app/SessionContext";
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Block, type Slide } from "../model/types";
 import { describeShape, editableShapePoints, isLineShape } from "../render/shapes";
 import { insertableEdges, pointsToSlide } from "./shapeEdit";
+import { TextToolbar } from "./TextToolbar";
 import { boxOf, HANDLES, handleSides, selectionFrame, type Box, type Handle } from "./transform";
 
 function boxStyle(box: Box, zoom: number): CSSProperties {
@@ -151,7 +152,8 @@ export function SelectionLayer({ slide, zoom, editingId }: { slide: Slide; zoom:
   const line = single?.type === "shape" && isLineShape(single.style.shape) ? single : null;
   const outline = pointsEditing ? single : line;
   const frame = gestureFrame ?? selectionFrame(boxes);
-  const showHandles = !outline && (gesture === null || gesture === "resize" || gesture === "rotate");
+  const textEditing = editing?.kind === "text" && single?.id === editing.id ? single : null;
+  const showHandles = !outline && !textEditing && (gesture === null || gesture === "resize" || gesture === "rotate");
 
   return (
     <div className="selection-layer" style={{ width: SLIDE_WIDTH * zoom, height: SLIDE_HEIGHT * zoom }}>
@@ -182,6 +184,15 @@ export function SelectionLayer({ slide, zoom, editingId }: { slide: Slide; zoom:
           <Frame frame={frame} zoom={zoom} showHandles={showHandles} />
         )}
         {pointsEditing && <div className="points-frame" style={boxStyle(boxes[0]!, zoom)} />}
+        {textEditing && (
+          <TextToolbar
+            block={textEditing}
+            slideId={slide.id}
+            left={Math.max(0, boxes[0]!.x * zoom)}
+            // Above the box, or below it when there is no room above.
+            top={boxes[0]!.y * zoom >= 48 ? boxes[0]!.y * zoom - 44 : (boxes[0]!.y + boxes[0]!.h) * zoom + 8}
+          />
+        )}
         {outline && !drawing && (
           <OutlineHandles
             block={outline}

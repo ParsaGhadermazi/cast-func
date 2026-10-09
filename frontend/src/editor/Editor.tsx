@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useSession, useStatus, useUi } from "../app/SessionContext";
 import { CanvasInteraction } from "./interaction";
@@ -9,6 +9,7 @@ import { SlideRail } from "./SlideRail";
 import { Stage } from "./Stage";
 import { Toolbar } from "./Toolbar";
 import { Topbar } from "./Topbar";
+import { trackTextSelection } from "./textSession";
 import { Viewbar } from "./Viewbar";
 
 function Notices() {
@@ -36,6 +37,7 @@ export function Editor() {
   // Debugging and test handle, like window.__castSession.
   (window as unknown as { __castInteraction: CanvasInteraction }).__castInteraction = interaction;
   useEditorShortcuts(session, interaction);
+  useEffect(trackTextSelection, []);
 
   return (
     <div className="editor">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import { useDoc, useSession, useUi } from "../app/SessionContext";
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from "../model/types";
@@ -7,6 +7,8 @@ import { useCurrentSlide } from "./hooks";
 import type { CanvasInteraction, PointerTarget } from "./interaction";
 import { enterEditing } from "./commands";
 import { SelectionLayer } from "./SelectionLayer";
+import { TextEditor } from "./TextEditor";
+import type { Block } from "../model/types";
 import type { Handle } from "./transform";
 
 function classify(element: Element | null): PointerTarget | null {
@@ -33,6 +35,16 @@ export function Stage({ interaction, viewportRef }: {
   const zoom = useUi((state) => state.zoom);
   const grid = useUi((state) => state.grid);
   const tool = useUi((state) => state.tool.kind);
+  const editing = useUi((state) => state.editing);
+  const textEditing = editing?.kind === "text" ? editing : null;
+  const slideId = useCurrentSlide().slide?.id;
+  const override = useCallback(
+    (block: Block) =>
+      textEditing && block.id === textEditing.id && slideId ? (
+        <TextEditor key={`${block.id}`} block={block} slideId={slideId} caret={textEditing.caret} selectAll={textEditing.selectAll} />
+      ) : undefined,
+    [textEditing, slideId],
+  );
   const { slide } = useCurrentSlide();
   const stage = useRef<HTMLElement>(null);
 
@@ -77,7 +89,7 @@ export function Stage({ interaction, viewportRef }: {
         const target = classify(document.elementFromPoint(event.clientX, event.clientY));
         if (target?.kind !== "block") return;
         const block = slide?.blocks.find((candidate) => candidate.id === target.id);
-        if (block) enterEditing(session, block);
+        if (block) enterEditing(session, block, { x: event.clientX, y: event.clientY });
       }}
       onPointerMove={(event) => interaction.pointerMove(event.nativeEvent)}
       onPointerUp={(event) => interaction.pointerUp(event.nativeEvent)}
@@ -88,9 +100,9 @@ export function Stage({ interaction, viewportRef }: {
         <div ref={viewportRef} className="canvas-viewport" style={{ width: SLIDE_WIDTH * zoom, height: SLIDE_HEIGHT * zoom }}>
           {/* CSS zoom (not transform) so text is rasterised at its displayed size. */}
           <div className="canvas" style={{ zoom }}>
-            <SlideView slide={slide} theme={theme} mode="edit" className={grid ? "show-grid" : undefined} />
+            <SlideView slide={slide} theme={theme} mode="edit" className={grid ? "show-grid" : undefined} override={override} />
           </div>
-          <SelectionLayer slide={slide} zoom={zoom} />
+          <SelectionLayer slide={slide} zoom={zoom} editingId={textEditing?.id ?? null} />
         </div>
       ) : (
         <p className="stage-empty">No slides yet.</p>

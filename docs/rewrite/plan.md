@@ -219,6 +219,27 @@ M3 and M4 come right after the foundation because they are the priorities. M1 re
   - Fixed during testing: the double-click target was retargeted to the stage by pointer capture.
   - Tests: 89 Vitest tests.
 
+- **M5 done.**
+  - In-place editing (`editor/TextEditor.tsx`):
+    - Double-click places the caret where you clicked; Enter selects all.
+    - React never rewrites the editable DOM, so the caret doesn't jump.
+    - Content is sanitised and synced 250 ms after typing stops. A whole editing session is one undo step, and native undo works inside the text.
+    - The box grows to fit the text.
+    - A text box left empty is deleted.
+    - Tab and Shift+Tab indent list items. Paste is sanitised.
+  - Text tool: click places a box and starts typing; drag sizes it.
+  - Floating format bar above the box (or below it at the top of the slide). Buttons never steal focus:
+    - Bold, italic, underline, strikethrough.
+    - Size −/+ and colour.
+    - H1, H2, paragraph, bullets, numbers, quote, code block.
+    - Link and clear formatting.
+  - Text inspector, with one rule (`editor/textStyle.ts`): selected characters change; otherwise the whole box changes and per-character overrides of that property are cleared so the change shows. It also works across several boxes.
+    - Plain/code variant.
+    - Font, size, weight, colour.
+    - Alignment, italic, line height, background.
+  - `editor/richText.ts` is tested: list indent/outdent, styling exactly the selected characters, stripping inline overrides, link normalisation.
+  - Tests: 96 Vitest tests.
+
 ## Decisions (confirmed)
 
 1. **The built bundle is committed**, so installing from git works without Node.
