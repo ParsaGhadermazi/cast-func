@@ -6,10 +6,11 @@
   "description": "Browser editor for cast. Builds into ../cast/static/editor/.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && npm run build:viewer",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:viewer": "rm -rf ../cast/static/viewer && vite build -c vite.viewer.config.ts && VIEWER_PLOTLY=global vite build -c vite.viewer.config.ts"
   },
   "dependencies": {
     "immer": "11.1.18",

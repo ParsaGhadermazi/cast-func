@@ -7,8 +7,9 @@ stream covers both):
   ``figures`` (plotting factories), ``htmls`` (HTML factories), and
   ``images`` (original raster or vector image factories).
 * **Deck** built in the browser — an ordered list of ``slides``, each holding
-  free-form ``blocks`` (a positioned figure or a rich-text body), plus a
-  ``theme``.
+  free-form ``blocks``, plus a ``theme``. The browser owns and edits the
+  document and syncs it back whole (``sync_deck``); Python can replace it
+  (``load_deck``) and read it (``get_deck``) for saving and exporting.
 
 Block geometry (``x, y, w, h``) is normalized to the slide canvas (0..1) so it
 scales responsively between the editor and full-screen present mode.
@@ -18,7 +19,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import copy
 import io
 import json
 import math
@@ -150,11 +150,6 @@ DECK_FORMAT = "cast.presentation"
 DECK_SCHEMA_VERSION = 1
 _BLOCK_TYPES = {"figure", "table", "html", "text", "image", "shape"}
 
-_BLOCK_FIELDS = {
-    "x", "y", "w", "h", "z", "figure", "table", "html", "image",
-    "content", "markdown", "style",
-}
-
 
 class Registry:
     def __init__(self) -> None:
@@ -166,11 +161,6 @@ class Registry:
         self._images: Dict[str, ImageAsset] = {}
         self._slides: List[Slide] = []
         self._theme: dict = dict(DEFAULT_THEME)
-        self._slide_seq = 0
-        self._block_seq = 0
-        self._undo: List[tuple] = []
-        self._redo: List[tuple] = []
-        self._last_history_group: Optional[str] = None
         # ``deck_rev`` counts document changes only; ``version`` counts every
         # change (assets too). ``deck_origin`` names the editor tab that made
         # the latest deck change so it can ignore its own echo.
@@ -178,44 +168,6 @@ class Registry:
         self._deck_origin: Optional[str] = None
         self._assets_version = 0
         self._listeners: List[Callable[[], None]] = []
-
-    def _deck_snapshot(self) -> tuple:
-        return (copy.deepcopy(self._theme), copy.deepcopy(self._slides),
-                self._slide_seq, self._block_seq)
-
-    def _record_deck_change(self, history_group: Optional[str] = None) -> None:
-        if not history_group or history_group != self._last_history_group or not self._undo:
-            self._undo.append(self._deck_snapshot())
-            if len(self._undo) > 50:
-                self._undo.pop(0)
-        self._last_history_group = history_group
-        self._redo.clear()
-
-    def history_state(self) -> dict:
-        with self._lock:
-            return {"can_undo": bool(self._undo), "can_redo": bool(self._redo)}
-
-    def undo(self) -> bool:
-        with self._lock:
-            if not self._undo:
-                return False
-            self._redo.append(self._deck_snapshot())
-            self._theme, self._slides, self._slide_seq, self._block_seq = self._undo.pop()
-            self._last_history_group = None
-            self._bump_deck()
-            return True
-
-    def redo(self) -> bool:
-        with self._lock:
-            if not self._redo:
-                return False
-            self._undo.append(self._deck_snapshot())
-            if len(self._undo) > 50:
-                self._undo.pop(0)
-            self._theme, self._slides, self._slide_seq, self._block_seq = self._redo.pop()
-            self._last_history_group = None
-            self._bump_deck()
-            return True
 
     @property
     def version(self) -> int:
@@ -441,135 +393,6 @@ class Registry:
         except Exception as exc:  # surfaced inline in the page, never crashes
             return TableRenderResult(ok=False, error=f"{type(exc).__name__}: {exc}")
 
-    # ----- deck: slides ------------------------------------------------- #
-    def add_slide(self, index: Optional[int] = None, history_group: Optional[str] = None) -> str:
-        with self._lock:
-            self._record_deck_change(history_group)
-            self._slide_seq += 1
-            sid = f"s{self._slide_seq}"
-            slide = Slide(id=sid)
-            if index is None or index >= len(self._slides):
-                self._slides.append(slide)
-            else:
-                self._slides.insert(max(0, index), slide)
-            self._bump_deck()
-            return sid
-
-    def remove_slide(self, sid: str, history_group: Optional[str] = None) -> bool:
-        with self._lock:
-            before = len(self._slides)
-            if not any(slide.id == sid for slide in self._slides):
-                return False
-            self._record_deck_change(history_group)
-            self._slides = [s for s in self._slides if s.id != sid]
-            removed = len(self._slides) != before
-            if removed:
-                self._bump_deck()
-            return removed
-
-    def duplicate_slide(self, sid: str, history_group: Optional[str] = None) -> Optional[str]:
-        with self._lock:
-            source_index = next(
-                (index for index, slide in enumerate(self._slides) if slide.id == sid),
-                None,
-            )
-            if source_index is None:
-                return None
-
-            self._record_deck_change(history_group)
-            self._slide_seq += 1
-            duplicate_sid = f"s{self._slide_seq}"
-            duplicate_blocks = []
-            for source_block in self._slides[source_index].blocks:
-                self._block_seq += 1
-                block_data = asdict(source_block)
-                block_data["id"] = f"b{self._block_seq}"
-                duplicate_blocks.append(Block(**block_data))
-
-            source = self._slides[source_index]
-            duplicate = Slide(
-                id=duplicate_sid,
-                background=source.background,
-                blocks=duplicate_blocks,
-            )
-            self._slides.insert(source_index + 1, duplicate)
-            self._bump_deck()
-            return duplicate_sid
-
-    def reorder_slides(self, order: List[str], history_group: Optional[str] = None) -> bool:
-        with self._lock:
-            by_id = {s.id: s for s in self._slides}
-            if len(order) != len(by_id) or len(set(order)) != len(order):
-                return False
-            if set(order) != set(by_id):
-                return False
-            if order == [slide.id for slide in self._slides]:
-                return True
-            self._record_deck_change(history_group)
-            self._slides = [by_id[sid] for sid in order]
-            self._bump_deck()
-            return True
-
-    # ----- deck: blocks ------------------------------------------------- #
-    def _find_block(self, bid: str):
-        for slide in self._slides:
-            for block in slide.blocks:
-                if block.id == bid:
-                    return block
-        return None
-
-    def add_block(self, sid: str, type: str, history_group: Optional[str] = None, **kwargs) -> Optional[str]:
-        with self._lock:
-            slide = next((s for s in self._slides if s.id == sid), None)
-            if slide is None:
-                return None
-            self._record_deck_change(history_group)
-            self._block_seq += 1
-            bid = f"b{self._block_seq}"
-            top_z = max((b.z for s in self._slides for b in s.blocks), default=0)
-            fields = {k: v for k, v in kwargs.items()
-                      if k in _BLOCK_FIELDS and v is not None}
-            block = Block(id=bid, type=type, z=top_z + 1, **fields)
-            slide.blocks.append(block)
-            self._bump_deck()
-            return bid
-
-    def update_block(self, bid: str, history_group: Optional[str] = None, **kwargs) -> bool:
-        with self._lock:
-            block = self._find_block(bid)
-            if block is None:
-                return False
-            changed = {k: v for k, v in kwargs.items()
-                       if k in _BLOCK_FIELDS and v is not None and getattr(block, k) != v}
-            if not changed:
-                return True
-            self._record_deck_change(history_group)
-            for k, v in changed.items():
-                setattr(block, k, v)
-            self._bump_deck()
-            return True
-
-    def remove_block(self, bid: str, history_group: Optional[str] = None) -> bool:
-        with self._lock:
-            for slide in self._slides:
-                if any(block.id == bid for block in slide.blocks):
-                    self._record_deck_change(history_group)
-                    slide.blocks = [b for b in slide.blocks if b.id != bid]
-                    self._bump_deck()
-                    return True
-            return False
-
-    # ----- deck: theme -------------------------------------------------- #
-    def set_theme(self, history_group: Optional[str] = None, **kwargs) -> None:
-        with self._lock:
-            changed = {k: v for k, v in kwargs.items()
-                       if k in DEFAULT_THEME and v is not None and self._theme[k] != v}
-            if not changed:
-                return
-            self._record_deck_change(history_group)
-            self._theme.update(changed)
-            self._bump_deck()
-
     # ----- state -------------------------------------------------------- #
     def get_deck(self) -> dict:
         """Return the editable, asset-reference-only presentation document."""
@@ -597,38 +420,20 @@ class Registry:
         Raises ``ValueError`` if the document is invalid.
         """
         theme, slides = _decode_deck(document)
-        slide_seq = _max_sequence("s", [slide.id for slide in slides])
-        block_seq = _max_sequence(
-            "b", [block.id for slide in slides for block in slide.blocks]
-        )
         with self._lock:
             if base_rev != self._deck_rev:
                 return {"ok": False, "conflict": True, "rev": self._deck_rev}
-            # Keeps the legacy editor's server-side undo usable during the
-            # transition; removed together with that editor.
-            self._record_deck_change(None)
             self._theme = theme
             self._slides = slides
-            self._slide_seq = max(self._slide_seq, slide_seq)
-            self._block_seq = max(self._block_seq, block_seq)
             self._bump_deck(origin)
             return {"ok": True, "rev": self._deck_rev}
 
     def load_deck(self, document: dict) -> None:
         """Replace the editable deck after validating the complete document."""
         theme, slides = _decode_deck(document)
-        slide_seq = _max_sequence("s", [slide.id for slide in slides])
-        block_seq = _max_sequence(
-            "b", [block.id for slide in slides for block in slide.blocks]
-        )
         with self._lock:
             self._theme = theme
             self._slides = slides
-            self._slide_seq = slide_seq
-            self._block_seq = block_seq
-            self._undo.clear()
-            self._redo.clear()
-            self._last_history_group = None
             self._bump_deck()
 
     def get_state(self) -> dict:
@@ -638,7 +443,6 @@ class Registry:
                 "assets_version": self._assets_version,
                 "deck_rev": self._deck_rev,
                 "deck_origin": self._deck_origin,
-                "history": {"can_undo": bool(self._undo), "can_redo": bool(self._redo)},
                 "figures": [
                     {"name": f.name, "title": f.title, "version": f.version}
                     for f in self._figures.values()
@@ -787,12 +591,6 @@ def _deck_number(value: object, location: str, minimum: float, maximum: float) -
     if not math.isfinite(number):
         raise ValueError(f"{location} must be finite.")
     return max(minimum, min(maximum, number))
-
-
-def _max_sequence(prefix: str, ids: List[str]) -> int:
-    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
-    values = [int(match.group(1)) for value in ids if (match := pattern.match(value))]
-    return max(values, default=0)
 
 
 registry = Registry()

@@ -263,6 +263,20 @@ M3 and M4 come right after the foundation because they are the priorities. M1 re
   - Panel toggles for the rail and inspector, which become overlays on narrow screens. An empty-deck state offers title or blank slides.
   - Tests: 100 Vitest tests.
 
+- **M7 done.**
+  - `freeze()` (`cast/export.py`):
+    - Renders every figure, table, HTML object and image in Python and embeds them with the document.
+    - Inlines the viewer bundle (`frontend/src/viewer`, built by `vite.viewer.config.ts`), which uses the same `SlideView`.
+    - The viewer sanitises text on load, supports keyboard, swipe, `#n` links and F for full screen.
+    - Offline by default (Plotly inlined, about 5 MB); `offline=False` loads Plotly from a CDN (about 0.3 MB).
+    - Script content is escaped so embedded text can't close the script early.
+  - `/` serves the new editor. Removed: `cast/templates.py`, the legacy icon bundle, the per-block REST endpoints, server-side undo and id counters, and the legacy Playwright/smoke scripts.
+  - `serve()` raises a clear `OSError` when the port is taken (it used to print "serving" while its thread died).
+  - pytest suite in `tests/`: assets, rendering, sync, conflicts and validation, change markers, persistence, export safety and size, server.
+  - CI (`.github/workflows/ci.yml`): pytest on Python 3.9 and 3.12; frontend tests and build; a check that the committed bundle matches the source.
+  - The README documents the new editing model, export and development. Version 0.4.0.
+  - Not done: an end-to-end Playwright suite. It needs a Chromium download, so it waits for approval. Interactions were verified with scripted pointer and keyboard events in the browser for each milestone.
+
 ## Decisions (confirmed)
 
 1. **The built bundle is committed**, so installing from git works without Node.

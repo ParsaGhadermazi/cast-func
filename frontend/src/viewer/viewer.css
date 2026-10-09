@@ -1,0 +1,15 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: #000; color: #edf0f6; overflow: hidden; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.viewer { position: fixed; inset: 0; display: flex; }
+.present-stage { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.present-viewport { position: relative; flex: 0 0 auto; }
+.present-canvas { position: absolute; left: 0; top: 0; }
+.present-hud { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 999px; background: rgba(20,22,28,.85); opacity: .3; transition: opacity .2s; z-index: 10; }
+.present-hud:hover, .present-hud:focus-within { opacity: 1; }
+.present-hud button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0;
+  background: transparent; border: 0; border-radius: 6px; color: #edf0f6; cursor: pointer; }
+.present-hud button:disabled { opacity: .4; cursor: default; }
+.present-count { min-width: 60px; text-align: center; }
+.viewer-empty { color: #98a1b3; }
